@@ -1,2 +1,2 @@
-cd "d:\SOLOVIBE\backend"
-& python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+& (Join-Path $PSScriptRoot 'scripts\dev.ps1') -Service backend
+exit $LASTEXITCODE

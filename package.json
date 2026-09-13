@@ -5,15 +5,15 @@
   "description": "Full-stack application with Vite frontend and Python backend",
   "type": "module",
   "scripts": {
-    "dev": "cd frontend && npm run dev",
-    "build": "npm install --prefix frontend && npm run build --prefix frontend",
-    "preview": "cd frontend && npm run preview",
-    "start": "cd frontend && npm run start",
+    "dev": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace frontend",
+    "preview": "npm run preview --workspace frontend",
+    "start": "npm run preview --workspace frontend",
     "clean": "cd frontend && npm run clean",
-    "lint": "cd frontend && npm run lint",
-    "backend": "cd backend && python main.py",
-    "install:frontend": "cd frontend && npm install",
-    "install:backend": "cd backend && pip install -r requirements.txt",
+    "lint": "npm run lint --workspace frontend",
+    "backend": "powershell -NoProfile -File ./scripts/dev.ps1 -Service backend",
+    "install:frontend": "npm ci",
+    "install:backend": "powershell -NoProfile -File ./scripts/setup.ps1 -SkipFrontend",
     "install:all": "npm run install:frontend && npm run install:backend"
   },
   "engines": {

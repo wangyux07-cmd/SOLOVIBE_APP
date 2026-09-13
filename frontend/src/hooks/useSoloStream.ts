@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { API_BASE_URL } from '../api';
 import {
   StreamChatRequest,
   StreamHookState,
@@ -43,7 +44,6 @@ export const useSoloStream = (options: UseSoloStreamOptions = {}) => {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // API基础URL
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
   // 解析SSE数据
   const parseSSEData = useCallback((rawData: string): ParsedSSEData => {

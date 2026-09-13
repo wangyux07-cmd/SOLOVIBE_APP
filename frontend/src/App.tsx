@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import {
   motion,
   AnimatePresence
-} from "framer-motion";
+} from "motion/react";
+import { apiUrl } from './api';
 import {
   Compass,
   Map as MapIcon,
@@ -211,13 +212,14 @@ export default function App() {
         ...(currentThreadId && { thread_id: currentThreadId }) // body中传递thread_id
       };
       
-      const res = await fetch(`http://localhost:8000/api/chat`, {
+      const res = await fetch(apiUrl('/api/chat'), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody)
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || `请求失败（HTTP ${res.status}）`);
       
       // Protocol v2.0 - 处理新返回格式
       // 始终使用返回的thread_id确保连续性
@@ -241,7 +243,7 @@ export default function App() {
       const modelMsg: Message = {
         id: `msg-${Date.now() + 1}`,
         role: "model",
-        content: data.response || "正在为您寻找附近的好去处...",
+        content: data.response || "服务没有返回回复，请稍后重试。",
         timestamp: new Date().toLocaleTimeString("zh-CN", {
           hour: "2-digit",
           minute: "2-digit",
@@ -257,7 +259,7 @@ export default function App() {
         const fallbackMsg: Message = {
           id: `msg-${Date.now() + 1}`,
           role: "model",
-          content: "正在为您生成推荐方案...",
+          content: e instanceof Error ? e.message : "连接失败，请检查服务后重试。",
           timestamp: new Date().toLocaleTimeString("zh-CN", {
             hour: "2-digit",
             minute: "2-digit"

@@ -1,5 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapInstancePin } from '../types/api';
+// This legacy preview has a different shape from the main application's pins.
+interface MapInstancePin {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  category: string;
+  description: string;
+}
 
 interface MapPageProps {
   pins?: MapInstancePin[];

@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from enum import Enum
 
 
@@ -35,8 +35,8 @@ class StreamChatResponse(BaseModel):
 class ThreadState(BaseModel):
     thread_id: str
     status: ThreadStatus
-    messages: List[Dict[str, Any]] = []
-    metadata: Dict[str, Any] = {}
+    messages: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -46,6 +46,17 @@ class CheckpointData(BaseModel):
     checkpoint_id: str
     state: Dict[str, Any]
     timestamp: str
+
+
+class SoloIndexDimensions(BaseModel):
+    """Legacy card dimensions. An absent observation stays unknown."""
+
+    single_seat_friendly: Optional[float] = Field(default=None, ge=0, le=1)
+    environment_quietness: Optional[float] = Field(default=None, ge=0, le=1)
+    solo_package_support: Optional[float] = Field(default=None, ge=0, le=1)
+    no_awkwardness: Optional[float] = Field(default=None, ge=0, le=1)
+    safety_rating: Optional[float] = Field(default=None, ge=0, le=1)
+    accessibility: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 class WanderPlan(BaseModel):
@@ -83,7 +94,7 @@ class UnifiedWanderPlan(BaseModel):
     vibe_tags: List[str]
     estimated_time: str
     solo_index: Optional[SoloIndexDimensions] = None
-    merchant_recommendations: List[MerchantRecommendation] = []
+    merchant_recommendations: List[MerchantRecommendation] = Field(default_factory=list)
 
 
 class RiskAssessment(BaseModel):

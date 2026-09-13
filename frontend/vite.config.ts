@@ -12,6 +12,9 @@ export default defineConfig(() => {
       },
     },
   server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
     // HMR is disabled in AI Studio via DISABLE_HMR env var.
     // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
     hmr: process.env.DISABLE_HMR !== 'true',
@@ -21,12 +24,11 @@ export default defineConfig(() => {
     // 🎯 Proxy /api to Python FastAPI backend
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
-        rewrite: (path) => path,
-        secure: false
       }
     }
   },
+  preview: { host: '127.0.0.1', port: 5173, strictPort: true },
   };
 });
