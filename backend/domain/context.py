@@ -1,0 +1,117 @@
+"""The model proposes edits; validated, versioned snapshots remain authoritative."""
+
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from domain.errors import AppError
+
+
+class Constraints(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    city: str | None = Field(default=None, max_length=80)
+    location_text: str | None = Field(default=None, max_length=180)
+    budget_cny: float | None = Field(default=None, ge=0, le=100000)
+    available_minutes: int | None = Field(default=None, ge=1, le=1440)
+    max_walk_minutes: int | None = Field(default=None, ge=0, le=360)
+    energy: Literal["low", "medium", "high"] | None = None
+    interests: list[str] = Field(default_factory=list, max_length=12)
+    exclusions: list[str] = Field(default_factory=list, max_length=12)
+
+
+class FieldSource(BaseModel):
+    message_id: str
+    quote: str
+    basis: Literal["explicit", "inferred"]
+    revision: int
+
+
+class ContextSnapshot(BaseModel):
+    schema_version: int = 1
+    revision: int = 0
+    constraints: Constraints = Field(default_factory=Constraints)
+    sources: dict[str, FieldSource] = Field(default_factory=dict)
+
+
+class FieldChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    field: Literal["city", "location_text", "budget_cny", "available_minutes", "max_walk_minutes", "energy", "interests", "exclusions"]
+    value: Any
+    quote: str = Field(min_length=1, max_length=1000)
+    basis: Literal["explicit", "inferred"] = "explicit"
+
+
+class Understanding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    intent: Literal["planning", "state_query", "chat"]
+    changes: list[FieldChange] = Field(default_factory=list, max_length=8)
+
+
+def apply_patch(snapshot: ContextSnapshot, proposal: Understanding, message: str, message_id: str) -> ContextSnapshot:
+    values = snapshot.constraints.model_dump()
+    sources = dict(snapshot.sources)
+    seen: set[str] = set()
+    for change in proposal.changes:
+        if change.field in seen or change.quote not in message:
+            raise AppError("INVALID_MODEL_PATCH", "模型给出的变更缺少本条消息的有效依据，请重试。")
+        seen.add(change.field)
+        if change.basis == "inferred" and change.field != "energy":
+            raise AppError("INVALID_MODEL_PATCH", "不能推测预算、地点或时间等约束。")
+        if isinstance(change.value, str) and not change.value.strip():
+            raise AppError("INVALID_MODEL_PATCH", "空字段必须明确表示为 null。")
+        if isinstance(change.value, list) and any(not isinstance(x, str) or not x.strip() or len(x) > 80 for x in change.value):
+            raise AppError("INVALID_MODEL_PATCH", "偏好字段格式无效。")
+        values[change.field] = change.value
+        sources[change.field] = FieldSource(
+            message_id=message_id, quote=change.quote, basis=change.basis,
+            revision=snapshot.revision + 1,
+        )
+    try:
+        constraints = Constraints.model_validate(values)
+    except ValidationError as exc:
+        raise AppError("INVALID_MODEL_PATCH", "模型返回的约束类型或范围不合法，请重试。") from exc
+    changed = bool(proposal.changes)
+    return ContextSnapshot(
+        revision=snapshot.revision + int(changed), constraints=constraints,
+        sources=sources,
+    )
+
+
+def missing_fields(snapshot: ContextSnapshot) -> list[str]:
+    c = snapshot.constraints
+    return [name for name in ("city", "location_text", "budget_cny", "available_minutes") if getattr(c, name) is None]
+
+
+def context_summary(snapshot: ContextSnapshot) -> str:
+    c = snapshot.constraints
+    parts = []
+    if c.city: parts.append(f"城市：{c.city}")
+    if c.location_text: parts.append(f"位置：{c.location_text}")
+    if c.budget_cny is not None: parts.append(f"预算：{c.budget_cny:g} 元")
+    if c.available_minutes is not None: parts.append(f"可用时间：{c.available_minutes} 分钟")
+    if c.max_walk_minutes is not None: parts.append(f"最多步行：{c.max_walk_minutes} 分钟")
+    if c.energy: parts.append(f"精力：{dict(low='偏低', medium='一般', high='充足')[c.energy]}")
+    if c.interests: parts.append("偏好：" + "、".join(c.interests))
+    if c.exclusions: parts.append("避开：" + "、".join(c.exclusions))
+    return "；".join(parts) or "目前还没有记录出行约束"
+
+
+def make_reply(snapshot: ContextSnapshot, intent: str) -> dict:
+    missing = missing_fields(snapshot)
+    summary = context_summary(snapshot)
+    if intent == "state_query":
+        return {"kind": "state_summary", "response": f"目前记下的是：{summary}。", "missing_fields": missing}
+    if intent == "chat":
+        return {"kind": "supportive", "response": "我在。可以先说说你现在的状态，想出门时我们再一起整理地点、预算和时间。", "missing_fields": missing}
+    if missing:
+        questions = {
+            "city": "你现在在哪个城市、哪个区域或地标附近？",
+            "location_text": "你现在在哪个区域或地标附近？",
+            "budget_cny": "这次出门的预算上限大约是多少元？",
+            "available_minutes": "你大约有多少分钟可以安排？",
+        }
+        return {"kind": "clarification", "response": f"已记下：{summary}。{questions[missing[0]]}", "missing_fields": missing}
+    return {
+        "kind": "context_ready", "missing_fields": [],
+        "response": f"出行条件已整理好：{summary}。真实地点检索将在阶段 3 接入，这一阶段先为你准确保留这些条件。",
+    }

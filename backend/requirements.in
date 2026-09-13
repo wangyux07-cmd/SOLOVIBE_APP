@@ -8,3 +8,5 @@ aiohttp>=3.11,<4
 openai>=1.68,<3
 supabase>=2.15,<3
 langgraph>=1,<2
+langgraph-checkpoint-postgres>=3,<4
+psycopg[binary,pool]>=3.2,<4

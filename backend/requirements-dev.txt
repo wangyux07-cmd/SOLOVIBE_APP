@@ -167,7 +167,12 @@ langgraph-checkpoint==4.2.0
     # via
     #   -c backend/requirements.txt
     #   langgraph
+    #   langgraph-checkpoint-postgres
     #   langgraph-prebuilt
+langgraph-checkpoint-postgres==3.1.2
+    # via
+    #   -c backend/requirements.txt
+    #   -r backend/requirements.in
 langgraph-prebuilt==1.1.0
     # via
     #   -c backend/requirements.txt
@@ -192,6 +197,7 @@ openai==2.54.0
 orjson==3.12.0
     # via
     #   -c backend/requirements.txt
+    #   langgraph-checkpoint-postgres
     #   langgraph-sdk
     #   langsmith
 ormsgpack==1.12.2
@@ -216,6 +222,20 @@ propcache==0.5.2
     #   -c backend/requirements.txt
     #   aiohttp
     #   yarl
+psycopg==3.3.5
+    # via
+    #   -c backend/requirements.txt
+    #   -r backend/requirements.in
+    #   langgraph-checkpoint-postgres
+psycopg-binary==3.3.5
+    # via
+    #   -c backend/requirements.txt
+    #   psycopg
+psycopg-pool==3.3.1
+    # via
+    #   -c backend/requirements.txt
+    #   langgraph-checkpoint-postgres
+    #   psycopg
 pycparser==3.0
     # via
     #   -c backend/requirements.txt
@@ -326,6 +346,8 @@ typing-extensions==4.16.0
     #   langchain-protocol
     #   langsmith
     #   openai
+    #   psycopg
+    #   psycopg-pool
     #   pydantic
     #   pydantic-core
     #   pytest-asyncio
@@ -337,6 +359,10 @@ typing-inspection==0.4.4
     #   -c backend/requirements.txt
     #   fastapi
     #   pydantic
+tzdata==2026.4
+    # via
+    #   -c backend/requirements.txt
+    #   psycopg
 urllib3==2.7.0
     # via
     #   -c backend/requirements.txt
