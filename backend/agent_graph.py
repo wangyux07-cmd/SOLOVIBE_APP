@@ -5,6 +5,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from domain.context import ContextSnapshot, make_reply, apply_patch
+from services.context_builder import ContextBuilder
 
 
 class AgentState(TypedDict):
@@ -15,27 +16,47 @@ class AgentState(TypedDict):
     input_event: dict
     context_snapshot: dict
     recent_messages: list[dict]
+    rolling_summary: dict | None
+    context_budget: dict
     understanding: dict
     model_meta: dict
     reply: dict
     output: dict
 
 
-def build_graph(repository, model, checkpointer=None):
+def build_graph(repository, model, checkpointer=None, context_builder=None):
+    builder = context_builder or (ContextBuilder(repository, model) if repository and model else None)
     async def accept_event(state):
         run = await repository.run(state['run_id'])
         return {
             'schema_version': 1, 'request_id': str(run['request_id']),
             'input_event': {'message_id':str(run['message_id']), 'content':run['input_text']},
             'context_snapshot':run['base_snapshot'], 'recent_messages':[],
+            'rolling_summary':None, 'context_budget':{},
             'understanding':{}, 'model_meta':{}, 'reply':{}, 'output':{},
         }
 
     async def prepare_context(state):
-        return {'recent_messages':await repository.recent(state['thread_id'],state['run_id'])}
+        row = await repository.summary(state['thread_id'])
+        return {'rolling_summary':({key:row[key] for key in ('revision','covered_until_sequence','content')}
+                                   if row else None)}
+
+    async def compact_history(state):
+        # Re-read after a crash between summary commit and graph checkpoint.
+        # A saved prepare_context result may point at the previous cursor.
+        row = await repository.summary(state['thread_id'])
+        current_summary = ({key:row[key] for key in ('revision','covered_until_sequence','content')}
+                           if row else None)
+        return await builder.build(state['thread_id'], state['run_id'],
+                                   state['context_snapshot'], state['input_event']['content'],
+                                   current_summary)
 
     async def understand_context(state):
-        proposal, meta = await model.understand(state['context_snapshot'],state['recent_messages'],state['input_event']['content'])
+        proposal, meta = await model.understand(state['context_snapshot'],state['recent_messages'],
+                                                state['input_event']['content'],
+                                                rolling_summary=state['rolling_summary'],
+                                                max_input_tokens=state['context_budget']['input_limit'])
+        meta['context_budget'] = state['context_budget']
         # Reject unsupported patches before checkpointing them so retry re-extracts.
         apply_patch(ContextSnapshot.model_validate(state['context_snapshot']),proposal,
                     state['input_event']['content'],state['input_event']['message_id'])
@@ -68,6 +89,7 @@ def build_graph(repository, model, checkpointer=None):
 
     graph = StateGraph(AgentState)
     actions = {'accept_event':accept_event, 'prepare_context':prepare_context,
+               'compact_history':compact_history,
                'understand_context':understand_context, 'validate_and_commit_patch':validate_and_commit_patch,
                'clarification':publish, 'state_summary':publish, 'supportive':publish,
                'context_ready':publish, 'persist_reply':persist_reply}
@@ -75,7 +97,8 @@ def build_graph(repository, model, checkpointer=None):
         graph.add_node(name,tracked(name,action))
     graph.add_edge(START,'accept_event')
     graph.add_edge('accept_event','prepare_context')
-    graph.add_edge('prepare_context','understand_context')
+    graph.add_edge('prepare_context','compact_history')
+    graph.add_edge('compact_history','understand_context')
     graph.add_edge('understand_context','validate_and_commit_patch')
     routes = {name:name for name in ('clarification','state_summary','supportive','context_ready')}
     graph.add_conditional_edges('validate_and_commit_patch',route,routes)

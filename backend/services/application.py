@@ -54,7 +54,7 @@ class Application:
             self.pool = make_pool(dsn)
             await self.pool.open(wait=True,timeout=12)
             async with self.pool.connection() as conn:
-                tables = await (await conn.execute("SELECT to_regclass('solovibe_v1.conversations') AS business, to_regclass('solovibe_graph.checkpoints') AS checkpoints")).fetchone()
+                tables = await (await conn.execute("SELECT to_regclass('solovibe_v1.conversations') AS business, to_regclass('solovibe_v1.rolling_summaries') AS summaries, to_regclass('solovibe_graph.checkpoints') AS checkpoints")).fetchone()
                 if not all(tables.values()):
                     raise AppError('MIGRATION_REQUIRED','请先运行 scripts/migrate_stage1.py 初始化阶段一数据表。')
             self.graph_pool = make_pool(dsn,graph=True)
@@ -63,6 +63,8 @@ class Application:
             probe = await self.model.probe()
             if not probe['configured_model_available']:
                 raise AppError('MODEL_NOT_AVAILABLE','配置的模型不在账户可用模型列表中。')
+            if not probe['context_window']:
+                raise AppError('MODEL_CAPABILITY_UNKNOWN','模型列表未提供有效的上下文窗口，无法安全计算输入预算。')
             # Listing models only verifies authentication. A tiny generation call
             # also catches accounts that cannot actually run completions.
             await self.model.understand({},[], '你好')

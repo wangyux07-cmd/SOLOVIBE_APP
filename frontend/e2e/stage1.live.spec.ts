@@ -10,7 +10,7 @@ test('real UI completes a graph turn and displays persisted evidence', async ({ 
   await page.getByLabel('输入出行需求').fill('我在上海徐汇，预算80元，只有一小时。');
   await page.getByRole('button', { name: '发送消息' }).click();
   await expect(page.getByText('我在上海徐汇，预算80元，只有一小时。')).toBeVisible();
-  await expect(page.getByText('数据库中的结构化状态 · 版本 1')).toBeVisible();
+  await expect(page.getByText('数据库中的结构化状态 · 版本 1')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText('80', { exact: true })).toBeVisible();
   await expect(page.getByText('understand_context')).toBeVisible();
   await page.reload();

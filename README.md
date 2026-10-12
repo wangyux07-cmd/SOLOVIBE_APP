@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: V1 redesign in progress.** Stages 0 and 1 are implemented on the development branch. Stage 1 has been exercised with a real DeepSeek account and a Supabase PostgreSQL Session pooler, including durable multi-turn state, replay handling, ownership isolation, concurrent writes, and recovery from another backend process. Map and web retrieval, activity options, context compaction, and confirmed actions are later stages.
+> **Project status: V1 redesign in progress.** Stages 0–2 are implemented on `Refactor`. Real DeepSeek and Supabase PostgreSQL checks cover multi-turn state, owner isolation, concurrent writes, on-demand conversation summaries, and cross-process recovery. Map and web retrieval, activity options, and confirmed actions remain later stages.
 
 ## Why SoloVibe?
 
@@ -35,7 +35,7 @@ Ratings, offers, menus, and opening hours depend on actual provider coverage. Mi
 
 ## Architecture
 
-The frontend uses **React, TypeScript, and Vite**, with **FastAPI** on the backend. **LangGraph** is the workflow orchestrator, **Supabase / PostgreSQL** is the planned persistence layer, and model calls go through a dedicated adapter.
+The frontend uses **React, TypeScript, and Vite**, with **FastAPI** on the backend. **LangGraph** is the workflow orchestrator, **Supabase / PostgreSQL** persists business state and native checkpoints, and model calls go through a dedicated adapter.
 
 The diagram below shows the **target V1 workflow**, not an end-to-end flow already running in the application:
 
@@ -62,7 +62,7 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 
 - **Raw messages:** Stored separately for conversation display and traceability.
 - **Structured snapshots:** Authoritative constraints and execution progress, updated after each validated change with a version and source reference.
-- **Recent messages and rolling summaries:** Recent turns retain their original text. Older history is summarized as the node's input budget fills up. The proposed initial trigger is approximately 80% of that budget; this policy is not implemented or validated yet.
+- **Recent messages and rolling summaries:** The latest four complete turns retain their original text. When estimated full input reaches about 80% of the node budget, eligible older turns are summarized; raw messages remain stored. The budget uses the model's reported context window and a conservative estimate, not an exact tokenizer count.
 - **LangGraph checkpoints:** Persist graph execution state for recovery. They do not replace business snapshots or automatically compress conversation history.
 
 ## Development Status
@@ -71,26 +71,26 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 | --- | --- | --- |
 | 0 · Development baseline | Reproducible setup, locked dependencies, health checks, developer workbench, and baseline tests | Completed and pushed to the development branch |
 | 1 · LangGraph and state | Graph execution, structured state, native persistence, session isolation, and retries | Implemented; live model/database integration and cross-process recovery verified. Failure/retry paths have contract tests but have not been fault-injected against the live provider |
-| 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Planned |
+| 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Implemented; live compaction, raw-message retention, newer correction priority, and cross-process summary recovery verified |
 | 3 · Real activity options | Map and search integrations, source evidence, constraint validation, and option presentation | Planned |
 | 4 · Confirmation and actions | User confirmation, saving, navigation handoff, and local plan adjustments | Planned |
 | 5 · Integration and release | End-to-end validation, failure handling, and deployment | Planned |
 
-**Branches:** `main` retains the historical prototype. The active redesign is on [`codex/redesign-v1`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/codex/redesign-v1). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
+**Branches:** `main` retains the historical prototype. The active redesign is on [`Refactor`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/Refactor). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
 
-Stage 1 readiness requires a working database connection and a successful model generation probe. With either unavailable, health reports `ready=false` and chat requests fail explicitly. Map, search, planning, and confirmed actions remain later stages.
+Readiness requires a working database connection, current migrations, and a successful model generation probe. With either unavailable, health reports `ready=false` and chat requests fail explicitly. Map, search, planning, and confirmed actions remain later stages.
 
 ## Run the Development Baseline
 
 These instructions target **Windows PowerShell and the development branch**. Install Git, Node.js 20.19 or newer, and a Python installation with working `python -m pip`. The setup script uses uv to create an isolated Python 3.12.14 environment.
 
 ```powershell
-git clone --branch codex/redesign-v1 --single-branch https://github.com/wangyux07-cmd/SOLOVIBE_APP.git
+git clone --branch Refactor --single-branch https://github.com/wangyux07-cmd/SOLOVIBE_APP.git
 Set-Location SOLOVIBE_APP
 powershell -NoProfile -File scripts/setup.ps1
 ```
 
-Setup installs locked dependencies and copies environment templates only when local `.env` files are missing. **External API keys are not required to view the Stage 1 readiness screen.** Real conversation execution requires PostgreSQL and a model account that can complete generation requests. Run the explicit Stage 1 database migration only after reviewing the intended database connection.
+Setup installs locked dependencies and copies environment templates only when local `.env` files are missing. **External API keys are not required to view the readiness screen.** Real conversation execution requires PostgreSQL and a model account that can complete generation requests. Run the additive migration in `scripts/migrate_stage1.py` after reviewing the intended database connection; rerun it when upgrading from Stage 1 to create the summary table.
 
 Open two terminals at the repository root:
 
@@ -124,11 +124,13 @@ The local suite covers boundary behavior and the browser UI. To verify live Stag
 
 For a read-only count of completed runs, node events, and native LangGraph checkpoints, run `python scripts/verify_stage1_storage.py`. To opt into a real browser-to-model test, set `SOLOVIBE_LIVE=1` and run `npm run test:e2e --workspace frontend -- --grep "real UI"`; this consumes model credits.
 
+The Stage 2 live check uses a second backend on port 8001 with `SOLOVIBE_UNDERSTAND_INPUT_TOKENS=4500` and then runs `python scripts/verify_stage2_live.py`. It creates test conversations and consumes model credits. See [Stage 2 delivery and validation](docs/STAGE2_PROGRESS_2026-10-12.md) for the exact boundary and observed results.
+
 ## Design and Development Documents
 
 The following documents are currently written in Chinese and are linked from the development branch. Delivery notes describe the state at the time they were written.
 
-- [Original project review and redesign proposal](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/codex/redesign-v1/docs/AI_AGENT_REDESIGN_PROPOSAL.md)
-- [Redesigned Plan V1: architecture, state management, and delivery stages](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/codex/redesign-v1/docs/AI_AGENT_REDESIGNED_PLAN_V1.md)
-- [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/codex/redesign-v1/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
-- [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/codex/redesign-v1/docs/DEVELOPMENT_BASELINE.md)
+- [Original project review and redesign proposal](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGN_PROPOSAL.md)
+- [Redesigned Plan V1: architecture, state management, and delivery stages](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V1.md)
+- [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
+- [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)

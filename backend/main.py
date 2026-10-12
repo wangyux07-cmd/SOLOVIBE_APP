@@ -14,8 +14,8 @@ from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.3.0'
-STAGE = 'stage1'
+VERSION = '0.4.0'
+STAGE = 'stage2'
 COOKIE = 'solovibe_session'
 
 
@@ -76,8 +76,12 @@ def create_app():
     @app.get('/health', include_in_schema=False)
     @app.get('/api/v1/health')
     async def health():
+        services = configuration_status()
+        if runtime.ready:
+            services['model']['verification'] = 'generation_passed_at_startup'
+            services['database']['verification'] = 'connection_passed_at_startup'
         return {'status':'ok','ready':runtime.ready,'stage':STAGE,'version':VERSION,
-                'services':configuration_status(),
+                'services':services,
                 'blocker':None if runtime.ready else {'code':runtime.error.code,'message':runtime.error.message}}
 
     @app.get('/api/v1/readiness')

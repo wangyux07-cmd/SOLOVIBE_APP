@@ -25,7 +25,9 @@ async def main():
                     await AsyncPostgresSaver(graph_pool).setup()
             finally:
                 await conn.execute('SELECT pg_advisory_unlock(731415)')
-    print(json.dumps({'migrated':True,'business_schema':'solovibe_v1','checkpoint_schema':'solovibe_graph'}))
+    print(json.dumps({'migrated':True,'business_schema':'solovibe_v1',
+                      'summary_table':'solovibe_v1.rolling_summaries',
+                      'checkpoint_schema':'solovibe_graph'}))
 
 
 if __name__ == '__main__':

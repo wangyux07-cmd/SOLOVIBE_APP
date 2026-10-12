@@ -29,6 +29,20 @@ CREATE TABLE IF NOT EXISTS solovibe_v1.node_events (
  node text NOT NULL, status text NOT NULL, elapsed_ms integer NOT NULL,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS solovibe_v1.rolling_summaries (
+ thread_id uuid PRIMARY KEY REFERENCES solovibe_v1.conversations,
+ summary_id uuid NOT NULL,
+ revision integer NOT NULL CHECK(revision > 0),
+ covered_until_sequence bigint NOT NULL CHECK(covered_until_sequence > 0),
+ source_first_sequence bigint NOT NULL,
+ source_last_sequence bigint NOT NULL,
+ source_digest text NOT NULL,
+ based_on_context_revision integer NOT NULL,
+ schema_version integer NOT NULL DEFAULT 1,
+ content jsonb NOT NULL,
+ token_estimate integer NOT NULL,
+ generated_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE INDEX IF NOT EXISTS conversations_owner ON solovibe_v1.conversations(owner_id);
 CREATE INDEX IF NOT EXISTS node_events_run ON solovibe_v1.node_events(run_id, id);
 REVOKE ALL ON SCHEMA solovibe_v1, solovibe_graph FROM PUBLIC;

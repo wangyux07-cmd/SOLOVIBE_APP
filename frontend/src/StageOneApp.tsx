@@ -6,7 +6,8 @@ type Health = { ready: boolean; stage: string; blocker?: { code: string; message
 type Snapshot = { revision: number; constraints: Record<string, string | number | string[] | null>; sources: Record<string, { quote: string; basis: string; revision: number }> };
 type Message = { message_id: string; role: 'user' | 'assistant'; content: string; sequence: number };
 type Pending = { run_id: string; status: string; error_code: string | null } | null;
-type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]; pending_run: Pending };
+type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]; pending_run: Pending;
+  context_memory: { summary_revision: number; covered_until_sequence: number; raw_messages_retained: boolean } };
 type ChatResult = { response: string; kind: string; run_id: string; snapshot: Snapshot; model: { provider: string; model: string; input_tokens: number | null; output_tokens: number | null; actual_call: boolean } };
 type TraceEvent = { node: string; status: string; elapsed_ms: number };
 
@@ -111,12 +112,12 @@ export default function StageOneApp() {
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 1 · 状态与 LangGraph</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 2 · 连续对话与上下文</span>
       </header>
 
       <section className="py-9">
         <h1 className="text-3xl font-medium tracking-tight md:text-4xl">把当下想做的事，慢慢说清楚。</h1>
-        <p className="mt-4 max-w-3xl text-sm leading-7 text-[#a8b6ac]">这一阶段只理解和保存出行条件，并展示真实的模型与图执行记录。地点、商家、路线和套餐查询尚未接入。</p>
+        <p className="mt-4 max-w-3xl text-sm leading-7 text-[#a8b6ac]">出行条件会持续保存。较长对话按需整理早期内容，最近几轮仍保留原文；地点、商家、路线和套餐查询尚未接入。</p>
         <div className="mt-5 flex items-center gap-3 text-sm"><span className={health?.ready ? 'text-[#bdd7a2]' : 'text-orange-200'}>{health?.ready ? '数据库与模型启动检查已通过' : health ? `尚未就绪：${health.blocker?.message ?? '请检查后端配置'}` : '正在检查服务…'}</span><button type="button" aria-label="刷新服务状态" onClick={() => void refresh()} className="rounded-lg p-2 hover:bg-white/10"><RefreshCw size={16} /></button></div>
       </section>
 
@@ -133,11 +134,11 @@ export default function StageOneApp() {
         </section>
 
         <aside className="space-y-5">
-          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">已确认的情境</h2><p className="mt-2 text-xs text-[#a8b6ac]">数据库中的结构化状态 · 版本 {conversation?.snapshot.revision ?? '—'}</p><dl className="mt-4 space-y-3">{Object.entries(labels).map(([field,label]) => { const value = conversation?.snapshot.constraints[field]; const source = conversation?.snapshot.sources[field]; return <div key={field} className="border-t border-white/10 pt-3"><dt className="text-xs text-[#a8b6ac]">{label}</dt><dd className="mt-1 text-sm">{value === null || value === undefined || (Array.isArray(value) && !value.length) ? '未提供' : Array.isArray(value) ? value.join('、') : String(value)}</dd>{source && <p className="mt-1 text-xs text-[#92a48e]">依据：“{source.quote}” · {source.basis === 'explicit' ? '用户表达' : '推断'}</p>}</div>; })}</dl></section>
+          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">已确认的情境</h2><p className="mt-2 text-xs text-[#a8b6ac]">数据库中的结构化状态 · 版本 {conversation?.snapshot.revision ?? '—'}</p>{!!conversation?.context_memory.summary_revision && <p className="mt-2 text-xs text-[#a8b6ac]">较早对话已整理 · 原文仍保留</p>}<dl className="mt-4 space-y-3">{Object.entries(labels).map(([field,label]) => { const value = conversation?.snapshot.constraints[field]; const source = conversation?.snapshot.sources[field]; return <div key={field} className="border-t border-white/10 pt-3"><dt className="text-xs text-[#a8b6ac]">{label}</dt><dd className="mt-1 text-sm">{value === null || value === undefined || (Array.isArray(value) && !value.length) ? '未提供' : Array.isArray(value) ? value.join('、') : String(value)}</dd>{source && <p className="mt-1 text-xs text-[#92a48e]">依据：“{source.quote}” · {source.basis === 'explicit' ? '用户表达' : '推断'}</p>}</div>; })}</dl></section>
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">运行记录</h2>{last && <p className="mt-3 text-xs leading-6 text-[#a8b6ac]">{last.model.provider} / {last.model.model} · 输入 {last.model.input_tokens ?? '未知'} tokens · 输出 {last.model.output_tokens ?? '未知'} tokens · {last.kind}</p>}{trace.length ? <ol className="mt-4 space-y-2">{trace.map((event,index) => <li key={`${index}-${event.node}`} className="flex justify-between gap-2 border-t border-white/10 pt-2 text-xs"><span>{event.node}</span><span className={event.status === 'completed' ? 'text-[#bdd7a2]' : 'text-orange-200'}>{event.status} · {event.elapsed_ms} ms</span></li>)}</ol> : <p className="mt-4 text-sm text-[#a8b6ac]">完成一次真实请求后显示节点执行记录。</p>}</section>
         </aside>
       </div>
-      <footer className="mt-10 text-xs text-[#84938a]">阶段 1 开发预览 · 不生成未经查询的地点或行动结果。</footer>
+      <footer className="mt-10 text-xs text-[#84938a]">阶段 2 开发预览 · 不生成未经查询的地点或行动结果。</footer>
     </div>
   </main>;
 }
