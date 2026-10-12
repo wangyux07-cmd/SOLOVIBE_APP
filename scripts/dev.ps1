@@ -10,7 +10,7 @@ if ($Service -eq 'backend') {
     if (-not (Test-Path -LiteralPath $taskPython)) {
         throw 'Missing .venv. Run scripts/setup.ps1 first.'
     }
-    & $taskPython -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000
+    & $taskPython backend/run_server.py
 } else {
     if (-not (Test-Path -LiteralPath (Join-Path $taskRoot 'node_modules\.bin\vite.cmd'))) {
         throw 'Missing frontend dependencies. Run npm ci first.'

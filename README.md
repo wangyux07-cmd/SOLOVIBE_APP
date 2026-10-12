@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: V1 redesign in progress.** Stage 0 has been delivered. Stage 1 now has a wired graph, API, and developer UI. A standalone model extraction request has succeeded, while database persistence and the complete conversation flow still await integration testing. The capabilities below describe the intended V1 product; they are not all available yet.
+> **Project status: V1 redesign in progress.** Stages 0 and 1 are implemented on the development branch. Stage 1 has been exercised with a real DeepSeek account and a Supabase PostgreSQL Session pooler, including durable multi-turn state, replay handling, ownership isolation, concurrent writes, and recovery from another backend process. Map and web retrieval, activity options, context compaction, and confirmed actions are later stages.
 
 ## Why SoloVibe?
 
@@ -70,7 +70,7 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 | Stage | Deliverable | Status |
 | --- | --- | --- |
 | 0 · Development baseline | Reproducible setup, locked dependencies, health checks, developer workbench, and baseline tests | Completed and pushed to the development branch |
-| 1 · LangGraph and state | Graph execution, structured state, native persistence, session isolation, and retries | Graph/API/UI wired locally; live integration not yet verified |
+| 1 · LangGraph and state | Graph execution, structured state, native persistence, session isolation, and retries | Implemented; live model/database integration and cross-process recovery verified. Failure/retry paths have contract tests but have not been fault-injected against the live provider |
 | 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Planned |
 | 3 · Real activity options | Map and search integrations, source evidence, constraint validation, and option presentation | Planned |
 | 4 · Confirmation and actions | User confirmation, saving, navigation handoff, and local plan adjustments | Planned |
@@ -120,7 +120,9 @@ powershell -NoProfile -File scripts/check.ps1
 npm run test:e2e --workspace frontend
 ```
 
-Current local checks cover boundary behavior and unavailable-service UI; see [Stage 1 progress and integration limits](docs/STAGE1_PROGRESS_2026-10-12.md). They do not prove that live conversations or later planning features are ready.
+The local suite covers boundary behavior and the browser UI. To verify live Stage 1 behavior after configuring the ignored `backend/.env`, run `python scripts/migrate_stage1.py` once and `python scripts/verify_stage1_live.py` while the backend is running. The live script creates test conversations, makes real model calls, and checks persisted state, replay, concurrency, and owner isolation. See [Stage 1 progress and integration limits](docs/STAGE1_PROGRESS_2026-10-12.md). These checks do not validate the later planning features.
+
+For a read-only count of completed runs, node events, and native LangGraph checkpoints, run `python scripts/verify_stage1_storage.py`. To opt into a real browser-to-model test, set `SOLOVIBE_LIVE=1` and run `npm run test:e2e --workspace frontend -- --grep "real UI"`; this consumes model credits.
 
 ## Design and Development Documents
 

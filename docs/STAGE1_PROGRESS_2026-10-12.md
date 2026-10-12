@@ -1,6 +1,6 @@
 # 阶段一实施进度 — 2026-10-12
 
-状态：**已恢复开发，尚未完成真实集成验收**。项目继续使用 SoloVibe 城市活动决策定位，并按 `AI_AGENT_REDESIGNED_PLAN_V1.md` 的 V1.1 分层契约实施。
+状态：**阶段一已实现，并通过真实模型与数据库的主要链路验收**。项目继续使用 SoloVibe 城市活动决策定位，按 `AI_AGENT_REDESIGNED_PLAN_V1.md` 的 V1.1 分层契约实施。地图、网页搜索、活动方案、确认行动和 token 预算摘要属于后续阶段。
 
 ## 已接入的代码
 
@@ -35,18 +35,20 @@ flowchart TD
 | 当前后端模块编译与导入 | 通过 | 新主入口及引用模块 |
 | 后端测试 | 26 passed | 基线接口、数值依据校验、状态补丁、图分支、模型错误与超时契约；stub 测试不是外部联调 |
 | 前端类型检查、生产构建 | 通过 | 代码静态与打包 |
-| 浏览器测试 | 2 passed | 本地实际服务状态、移动宽度、断线提示 |
-| DeepSeek `/models` | 鉴权成功，可列出 `deepseek-flash` | 仅模型列表 |
-| DeepSeek `/chat/completions` | 首次 HTTP 402；复查时余额接口返回可用，简单生成和项目结构化提取均成功 | 已验证模型适配层真实调用与 JSON 补丁校验；完整 Graph 仍未联调 |
-| PostgreSQL 探针 | `password_placeholder`，未尝试连接 | 缺真实数据库密码 |
-| 本地 `/api/v1/health` | `ready=false`，`DATABASE_NOT_CONFIGURED` | API 如实阻断会话与聊天 |
+| 浏览器测试 | 常规 2 passed；可选真实 UI 1 passed | 就绪、移动宽度、断线；真实发送、状态与节点显示、刷新后恢复 |
+| DeepSeek `/models` 与 `/chat/completions` | 鉴权、可用模型和真实结构化生成通过 | 启动探针与 HTTP 图运行均实际调用服务 |
+| PostgreSQL Session pooler 与迁移 | 连接成功，`solovibe_v1` 和 `solovibe_graph` schema 建立 | 真实 Supabase 数据库；增量迁移，未删除旧表 |
+| 本地 `/api/v1/health` 与 `/api/v1/readiness` | `ready=true`，就绪接口 200 | 后端启动时同时检查数据库、模型列表与一次真实生成 |
+| HTTP 多轮及 LangGraph | 真实模型调用、字段原文依据、版本 0→2、六个节点事件通过 | `scripts/verify_stage1_live.py`；测试会话 `9b01659a-4713-4ad0-a422-c64fac304a62` |
+| 幂等、并发、权限 | 相同 request ID 重放、旧版本拒绝、同线程并发只完成一条、另一浏览器 404 | 真实 HTTP 与数据库，不是 stub |
+| 跨进程恢复 | 第二个后端进程读取并继续同一会话，版本 2→3 | 测试会话 `4e9c2772-19e5-4451-8a69-d84cb1baa85f`；第三轮更新在首个进程可见 |
+| 数据库落盘核对 | 完成运行 9 条、完成节点事件 54 条、原生 checkpoint 72 条 | 测试时只读计数；`scripts/verify_stage1_storage.py` |
 
 对整个历史 `backend/` 执行 compileall 时，未作为当前入口使用的旧文件 `backend/setup_env.py` 第 145 行有缩进错误；本阶段引用的模块单独编译通过。该旧文件仍待清理。
 
-## 完成阶段一仍需
+## 验收边界与后续工作
 
-1. 在被 Git 忽略的 `backend/.env` 中填入真实 PostgreSQL `DATABASE_URL`，并确认使用直连或 Session pooler；密码不能提交仓库或发到聊天。
-2. 在真实数据库执行 `scripts/migrate_stage1.py`，核对业务表和原生 checkpoint schema。
-3. 用真实模型和数据库验证多轮更正、状态来源、重启恢复、请求重放、并发、跨浏览器隔离与故障重试。
-
-以上完成前，不能宣称阶段一完全 OK。阶段二至阶段五按计划继续分批开发。
+- 已验证 Session pooler 的持久业务状态与跨进程继续运行。模型/数据库故障、超时和重试有确定性契约测试，但没有对真实供应商进行可控故障注入；这仍是后续运维演练项目。
+- 浏览器自动化已覆盖实际就绪屏、断线屏，以及显式设置 `SOLOVIBE_LIVE=1` 时的真实模型回复、状态显示和刷新恢复。默认浏览器测试不会消耗模型额度。
+- `backend/.env` 只在本地读取并被 Git 忽略。VS Code 的 `python.terminal.useEnvFile` 提示只涉及向终端自动注入变量；后端由 `config.py` 显式读取该文件，因此不要求打开此设置。不要提交或粘贴密钥、数据库 URI。
+- 下一阶段按计划实现 token 预算、近期原文和滚动摘要；之后才接地图/网页搜索、真实活动选项和用户确认后的行动。

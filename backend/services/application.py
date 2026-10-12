@@ -31,9 +31,12 @@ def database_dsn():
 
 def make_pool(dsn, graph=False):
     kwargs = {'autocommit':True,'row_factory':dict_row,'prepare_threshold':None,'connect_timeout':8}
-    if graph:
-        kwargs['options'] = '-c search_path=solovibe_graph,public'
-    return AsyncConnectionPool(dsn,kwargs=kwargs,min_size=1,max_size=8,timeout=12,open=False)
+    async def graph_search_path(connection):
+        # Session pooler supports session state; avoid startup-parameter support
+        # differences between direct Postgres and the shared pooler.
+        await connection.execute('SET search_path TO solovibe_graph,public')
+    return AsyncConnectionPool(dsn,kwargs=kwargs,min_size=1,max_size=8,timeout=12,
+                               open=False,configure=graph_search_path if graph else None)
 
 
 class Application:
