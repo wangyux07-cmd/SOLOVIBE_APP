@@ -41,6 +41,8 @@ def test_zero_clear_and_no_change_are_distinct():
     ({'field':'city','value':'上海','quote':'徐汇','basis':'inferred'},'我在徐汇'),
     ({'field':'available_minutes','value':0,'quote':'零分钟'},'零分钟'),
     ({'field':'budget_cny','value':'50','quote':'预算 50 元'},'预算 50 元'),
+    ({'field':'budget_cny','value':80,'quote':'预算 50 元'},'预算 50 元'),
+    ({'field':'budget_cny','value':None,'quote':'预算 50 元'},'预算 50 元'),
 ])
 def test_untrusted_model_patch_is_rejected(change,text):
     with pytest.raises(AppError):
@@ -50,3 +52,12 @@ def test_untrusted_model_patch_is_rejected(change,text):
 def test_extra_constraint_fields_are_rejected():
     with pytest.raises(ValidationError):
         ContextSnapshot.model_validate({'constraints':{'owner_id':'another-user'}})
+
+
+def test_hour_conversion_and_relative_budget_have_numeric_evidence():
+    state = patch(ContextSnapshot(),'预算50元，有一小时',
+                  budget={'field':'budget_cny','value':50,'quote':'预算50元'},
+                  time={'field':'available_minutes','value':60,'quote':'一小时'})
+    state = patch(state,'预算再加20元',budget={'field':'budget_cny','value':70,'quote':'再加20元'})
+    assert state.constraints.budget_cny == 70
+    assert state.constraints.available_minutes == 60

@@ -1,5 +1,6 @@
 """The model proposes edits; validated, versioned snapshots remain authoritative."""
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -47,6 +48,33 @@ class Understanding(BaseModel):
     changes: list[FieldChange] = Field(default_factory=list, max_length=8)
 
 
+def _number_supported(field: str, value: int | float | None, quote: str, previous: int | float | None) -> bool:
+    """Conservatively reject invented numeric values in model-proposed patches."""
+    if value is None:
+        return bool(re.search(r'取消|清除|不设|不限|随便|不考虑|不限制|都行', quote))
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    candidates = [float(number) for number in re.findall(r'(?<!\d)\d+(?:\.\d+)?', quote)]
+    if field.endswith('minutes'):
+        for match in re.finditer(r'(\d+(?:\.\d+)?|半|一|两|二|三|四|五|六|七|八|九|十)\s*个?\s*小时', quote):
+            amount = match.group(1)
+            hours = {'半':0.5,'一':1,'两':2,'二':2,'三':3,'四':4,'五':5,
+                     '六':6,'七':7,'八':8,'九':9,'十':10}.get(amount)
+            candidates.append(60 * (hours if hours is not None else float(amount)))
+        if '半小时' in quote:
+            candidates.append(30)
+    if any(abs(value - candidate) < 0.001 for candidate in candidates):
+        return True
+    if value == 0 and re.search(r'不想花钱|不花钱|免费|不走路|不步行', quote):
+        return True
+    if previous is not None:
+        if re.search(r'再加|增加|多(?:花|走|留|出)|提高|上调', quote):
+            return any(abs(value - previous - candidate) < 0.001 for candidate in candidates)
+        if re.search(r'减少|再减|降低|下调|少(?:花|走|留|出)', quote):
+            return any(abs(value - previous + candidate) < 0.001 for candidate in candidates)
+    return False
+
+
 def apply_patch(snapshot: ContextSnapshot, proposal: Understanding, message: str, message_id: str) -> ContextSnapshot:
     values = snapshot.constraints.model_dump()
     sources = dict(snapshot.sources)
@@ -61,6 +89,8 @@ def apply_patch(snapshot: ContextSnapshot, proposal: Understanding, message: str
             raise AppError("INVALID_MODEL_PATCH", "空字段必须明确表示为 null。")
         if isinstance(change.value, list) and any(not isinstance(x, str) or not x.strip() or len(x) > 80 for x in change.value):
             raise AppError("INVALID_MODEL_PATCH", "偏好字段格式无效。")
+        if change.field in ('budget_cny','available_minutes','max_walk_minutes') and not _number_supported(change.field,change.value,change.quote,values[change.field]):
+            raise AppError("INVALID_MODEL_PATCH", "模型给出的数值与本条消息依据不一致，请明确数值后重试。")
         values[change.field] = change.value
         sources[change.field] = FieldSource(
             message_id=message_id, quote=change.quote, basis=change.basis,
