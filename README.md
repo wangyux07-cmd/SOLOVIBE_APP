@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: V1 redesign in progress.** Stage 0, the development baseline, has been delivered. Stage 1 has local implementation drafts but has not passed integration testing. The capabilities and architecture below describe the intended V1 product; they are not all available yet.
+> **Project status: V1 redesign in progress.** Stage 0 has been delivered. Stage 1 now has a wired graph, API, and developer UI, but live model generation and database persistence have not passed integration testing. The capabilities below describe the intended V1 product; they are not all available yet.
 
 ## Why SoloVibe?
 
@@ -70,15 +70,15 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 | Stage | Deliverable | Status |
 | --- | --- | --- |
 | 0 · Development baseline | Reproducible setup, locked dependencies, health checks, developer workbench, and baseline tests | Completed and pushed to the development branch |
-| 1 · LangGraph and state | Graph execution, structured state, native persistence, session isolation, and retries | Local drafts; not connected to HTTP or integration-tested |
+| 1 · LangGraph and state | Graph execution, structured state, native persistence, session isolation, and retries | Graph/API/UI wired locally; live integration not yet verified |
 | 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Planned |
 | 3 · Real activity options | Map and search integrations, source evidence, constraint validation, and option presentation | Planned |
 | 4 · Confirmation and actions | User confirmation, saving, navigation handoff, and local plan adjustments | Planned |
 | 5 · Integration and release | End-to-end validation, failure handling, and deployment | Planned |
 
-**Branches:** `main` retains the historical prototype. The reproducible development baseline is on [`codex/redesign-v1`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/codex/redesign-v1). Its default frontend is `frontend/src/BaselineApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
+**Branches:** `main` retains the historical prototype. The active redesign is on [`codex/redesign-v1`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/codex/redesign-v1). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
 
-The baseline verifies frontend-to-backend communication and whether configuration values are present. Its health response reports `ready=false`, and valid chat requests return an explicit HTTP 503 not-implemented response. It does not demonstrate working model, map, search, or persistence integrations.
+Stage 1 readiness requires a working database connection and a successful model generation probe. With either unavailable, health reports `ready=false` and chat requests fail explicitly. Map, search, planning, and confirmed actions remain later stages.
 
 ## Run the Development Baseline
 
@@ -90,7 +90,7 @@ Set-Location SOLOVIBE_APP
 powershell -NoProfile -File scripts/setup.ps1
 ```
 
-Setup installs locked dependencies and copies environment templates only when local `.env` files are missing. **External API keys are not required to open the Stage 0 workbench.**
+Setup installs locked dependencies and copies environment templates only when local `.env` files are missing. **External API keys are not required to view the Stage 1 readiness screen.** Real conversation execution requires PostgreSQL and a model account that can complete generation requests. Run the explicit Stage 1 database migration only after reviewing the intended database connection.
 
 Open two terminals at the repository root:
 
@@ -120,7 +120,7 @@ powershell -NoProfile -File scripts/check.ps1
 npm run test:e2e --workspace frontend
 ```
 
-At Stage 0 delivery, 11 backend tests, frontend type checking and production build, and two browser tests passed. Those results cover the development baseline only, not the planned agent capabilities.
+Current local checks cover boundary behavior and unavailable-service UI; see [Stage 1 progress and integration limits](docs/STAGE1_PROGRESS_2026-10-12.md). They do not prove that live conversations or later planning features are ready.
 
 ## Design and Development Documents
 

@@ -49,11 +49,11 @@ def test_configured_key_is_neither_verified_nor_exposed(client, monkeypatch):
     assert client.get("/api/v1/health").json()["ready"] is False
 
 
-@pytest.mark.parametrize("path", ["/api/chat", "/api/v1/stream_chat", "/api/v1/threads/test/resume"])
+@pytest.mark.parametrize("path", ["/api/v1/stream_chat", "/api/v1/threads/test/resume"])
 def test_unimplemented_actions_do_not_produce_mock_success(client, path):
     response = client.post(path, json={"message": "附近有没有单人套餐？"})
     assert response.status_code == 503
-    assert response.json()["error"]["code"] == "AGENT_NOT_IMPLEMENTED"
+    assert response.json()["error"]["code"] == "FEATURE_NOT_IMPLEMENTED"
     assert "response" not in response.json()
     assert "plans" not in response.json()
 
@@ -61,6 +61,18 @@ def test_unimplemented_actions_do_not_produce_mock_success(client, path):
 @pytest.mark.parametrize("message", ["", "   ", "a" * 8001])
 def test_invalid_input_rejected(client, message):
     assert client.post("/api/chat", json={"message": message}).status_code == 422
+
+
+def test_chat_has_a_strict_contract_and_fails_closed_without_database(client):
+    body = {
+        "message": "预算 50 元", "thread_id": "a2a390be-9b6b-49e6-ab59-1a95e0e463f3",
+        "request_id": "388d47bc-0db6-4ee5-8c25-2196a64003be", "expected_revision": 0,
+    }
+    assert client.post('/api/chat', json={**body,'owner_id':'forged'}).status_code == 422
+    response = client.post('/api/chat',json=body)
+    assert response.status_code == 503
+    assert response.json()['error']['code'] == 'DATABASE_NOT_CONFIGURED'
+    assert 'response' not in response.json()
 
 
 def test_legacy_plan_endpoint_cannot_return_synthetic_shops(client):

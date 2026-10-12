@@ -60,6 +60,10 @@ class DeepSeekClient:
                 "response_format": {"type": "json_object"},
                 "temperature": 0, "max_tokens": 1400, "stream": False,
             })
+            if response.status_code == 402:
+                raise AppError("MODEL_PAYMENT_REQUIRED", "模型账户当前无法完成生成请求（HTTP 402），请检查余额或计费状态。")
+            if response.status_code in (401, 403):
+                raise AppError("MODEL_AUTH_FAILED", f"模型生成请求没有权限（HTTP {response.status_code}）。")
             if response.status_code != 200:
                 raise AppError("MODEL_UNAVAILABLE", f"模型调用失败（HTTP {response.status_code}），约束未由模型结果更新。")
             data = response.json()

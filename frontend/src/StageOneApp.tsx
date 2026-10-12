@@ -1,0 +1,143 @@
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowRight, Compass, RefreshCw, RotateCcw } from 'lucide-react';
+import { apiUrl } from './api';
+
+type Health = { ready: boolean; stage: string; blocker?: { code: string; message: string } | null };
+type Snapshot = { revision: number; constraints: Record<string, string | number | string[] | null>; sources: Record<string, { quote: string; basis: string; revision: number }> };
+type Message = { message_id: string; role: 'user' | 'assistant'; content: string; sequence: number };
+type Pending = { run_id: string; status: string; error_code: string | null } | null;
+type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]; pending_run: Pending };
+type ChatResult = { response: string; kind: string; run_id: string; snapshot: Snapshot; model: { provider: string; model: string; input_tokens: number | null; output_tokens: number | null; actual_call: boolean } };
+type TraceEvent = { node: string; status: string; elapsed_ms: number };
+
+const labels: Record<string, string> = {
+  city: '城市', location_text: '所在位置', budget_cny: '预算（元）', available_minutes: '可用时间（分钟）',
+  max_walk_minutes: '最多步行（分钟）', energy: '精力', interests: '偏好', exclusions: '避开',
+};
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(apiUrl(path), { credentials: 'include', cache: 'no-store', ...init });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message || `请求失败（HTTP ${response.status}）`);
+  return data as T;
+}
+
+const post = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+let bootstrapPromise: Promise<Conversation> | null = null;
+
+async function bootstrap(): Promise<Conversation> {
+  await request('/api/session', post);
+  const existing = await request<{ conversations: { thread_id: string }[] }>('/api/conversations');
+  if (existing.conversations.length) return request(`/api/conversations/${existing.conversations[0].thread_id}`);
+  return request('/api/conversations', post);
+}
+
+export default function StageOneApp() {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [last, setLast] = useState<ChatResult | null>(null);
+  const [trace, setTrace] = useState<TraceEvent[]>([]);
+
+  const refresh = useCallback(async () => {
+    try {
+      const value = await request<Health>('/api/v1/health');
+      setHealth(value);
+      if (!value.ready) { setConversation(null); return; }
+      bootstrapPromise ??= bootstrap().catch(cause => { bootstrapPromise = null; throw cause; });
+      setConversation(await bootstrapPromise);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '服务暂时不可用。');
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function reload() {
+    if (!conversation) return;
+    setConversation(await request(`/api/conversations/${conversation.thread_id}`));
+  }
+
+  async function loadTrace(thread: string, run: string) {
+    const result = await request<{ events: TraceEvent[] }>(`/api/conversations/${thread}/runs/${run}/trace`);
+    setTrace(result.events);
+  }
+
+  async function send() {
+    const message = input.trim();
+    if (!conversation || !message || busy || conversation.pending_run) return;
+    setBusy(true); setError('');
+    const requestId = crypto.randomUUID();
+    try {
+      const result = await request<ChatResult>('/api/chat', {
+        ...post, body: JSON.stringify({ thread_id: conversation.thread_id, request_id: requestId,
+          expected_revision: conversation.snapshot.revision, message }),
+      });
+      setLast(result); setInput('');
+      await reload();
+      await loadTrace(conversation.thread_id, result.run_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '请求失败。');
+      await reload().catch(() => undefined);
+    } finally { setBusy(false); }
+  }
+
+  async function retry() {
+    if (!conversation?.pending_run || busy) return;
+    setBusy(true); setError('');
+    try {
+      const result = await request<ChatResult>(`/api/conversations/${conversation.thread_id}/runs/${conversation.pending_run.run_id}/retry`, post);
+      setLast(result);
+      await reload();
+      await loadTrace(conversation.thread_id, result.run_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '重试失败。');
+      await reload().catch(() => undefined);
+    } finally { setBusy(false); }
+  }
+
+  async function newConversation() {
+    setBusy(true); setError('');
+    try {
+      const created = await request<Conversation>('/api/conversations', post);
+      setConversation(created); setLast(null); setTrace([]); setInput('');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '创建会话失败。'); }
+    finally { setBusy(false); }
+  }
+
+  return <main className="min-h-screen bg-[#101613] px-5 py-8 text-[#edf3ea] md:py-12">
+    <div className="mx-auto max-w-6xl">
+      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
+        <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 1 · 状态与 LangGraph</span>
+      </header>
+
+      <section className="py-9">
+        <h1 className="text-3xl font-medium tracking-tight md:text-4xl">把当下想做的事，慢慢说清楚。</h1>
+        <p className="mt-4 max-w-3xl text-sm leading-7 text-[#a8b6ac]">这一阶段只理解和保存出行条件，并展示真实的模型与图执行记录。地点、商家、路线和套餐查询尚未接入。</p>
+        <div className="mt-5 flex items-center gap-3 text-sm"><span className={health?.ready ? 'text-[#bdd7a2]' : 'text-orange-200'}>{health?.ready ? '数据库与模型启动检查已通过' : health ? `尚未就绪：${health.blocker?.message ?? '请检查后端配置'}` : '正在检查服务…'}</span><button type="button" aria-label="刷新服务状态" onClick={() => void refresh()} className="rounded-lg p-2 hover:bg-white/10"><RefreshCw size={16} /></button></div>
+      </section>
+
+      <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+        <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7">
+          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-medium">对话</h2><button type="button" onClick={() => void newConversation()} disabled={!health?.ready || busy} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-40">新建会话</button></div>
+          <div className="mt-6 min-h-64 space-y-4" aria-live="polite">
+            {!conversation?.messages.length && <p className="text-sm leading-7 text-[#a8b6ac]">可以先说：“我在上海徐汇，今天有点累，预算 80 元，只有一小时。”</p>}
+            {conversation?.messages.map(item => <div key={item.message_id} className={`rounded-xl p-4 text-sm leading-7 ${item.role === 'user' ? 'ml-7 bg-[#bdd7a2]/10' : 'mr-7 bg-white/[0.06]'}`}><div className="mb-1 text-xs text-[#9bb193]">{item.role === 'user' ? '你' : 'SoloVibe'}</div>{item.content}</div>)}
+          </div>
+          {conversation?.pending_run && <div className="mt-4 rounded-xl border border-orange-200/30 p-4 text-sm text-orange-100">上条消息仍有待恢复的运行（{conversation.pending_run.error_code ?? conversation.pending_run.status}）。<button type="button" disabled={busy} onClick={() => void retry()} className="ml-3 inline-flex items-center gap-1 underline"><RotateCcw size={14} />重试本条</button></div>}
+          <div className="mt-6 flex gap-3"><textarea value={input} onChange={event => setInput(event.target.value)} disabled={!conversation || busy || !!conversation.pending_run} aria-label="输入出行需求" rows={3} maxLength={8000} placeholder="说说你现在的位置、预算、时间或心情…" className="min-w-0 flex-1 resize-none rounded-xl border border-white/15 bg-[#19231d] p-4 text-sm outline-none focus:border-[#bdd7a2]/60 disabled:opacity-50" /><button type="button" onClick={() => void send()} disabled={!conversation || busy || !input.trim() || !!conversation.pending_run} className="self-end rounded-xl bg-[#bdd7a2] p-4 text-[#182416] disabled:opacity-40" aria-label="发送消息"><ArrowRight size={19} /></button></div>
+          {error && <p role="alert" className="mt-4 text-sm text-orange-200">{error}</p>}
+        </section>
+
+        <aside className="space-y-5">
+          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">已确认的情境</h2><p className="mt-2 text-xs text-[#a8b6ac]">数据库中的结构化状态 · 版本 {conversation?.snapshot.revision ?? '—'}</p><dl className="mt-4 space-y-3">{Object.entries(labels).map(([field,label]) => { const value = conversation?.snapshot.constraints[field]; const source = conversation?.snapshot.sources[field]; return <div key={field} className="border-t border-white/10 pt-3"><dt className="text-xs text-[#a8b6ac]">{label}</dt><dd className="mt-1 text-sm">{value === null || value === undefined || (Array.isArray(value) && !value.length) ? '未提供' : Array.isArray(value) ? value.join('、') : String(value)}</dd>{source && <p className="mt-1 text-xs text-[#92a48e]">依据：“{source.quote}” · {source.basis === 'explicit' ? '用户表达' : '推断'}</p>}</div>; })}</dl></section>
+          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">运行记录</h2>{last && <p className="mt-3 text-xs leading-6 text-[#a8b6ac]">{last.model.provider} / {last.model.model} · 输入 {last.model.input_tokens ?? '未知'} tokens · 输出 {last.model.output_tokens ?? '未知'} tokens · {last.kind}</p>}{trace.length ? <ol className="mt-4 space-y-2">{trace.map((event,index) => <li key={`${index}-${event.node}`} className="flex justify-between gap-2 border-t border-white/10 pt-2 text-xs"><span>{event.node}</span><span className={event.status === 'completed' ? 'text-[#bdd7a2]' : 'text-orange-200'}>{event.status} · {event.elapsed_ms} ms</span></li>)}</ol> : <p className="mt-4 text-sm text-[#a8b6ac]">完成一次真实请求后显示节点执行记录。</p>}</section>
+        </aside>
+      </div>
+      <footer className="mt-10 text-xs text-[#84938a]">阶段 1 开发预览 · 不生成未经查询的地点或行动结果。</footer>
+    </div>
+  </main>;
+}

@@ -1,5 +1,6 @@
 """Coordinates authorization, single-writer execution, and durable graph recovery."""
 import os
+import asyncio
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.conninfo import conninfo_to_dict
@@ -39,6 +40,7 @@ class Application:
     def __init__(self):
         self.pool = self.graph_pool = self.model = self.graph = self.repo = None
         self.ready = False
+        self.slots = asyncio.Semaphore(3)
         self.error = AppError('STARTING','服务正在启动。')
 
     async def start(self):
@@ -58,6 +60,9 @@ class Application:
             probe = await self.model.probe()
             if not probe['configured_model_available']:
                 raise AppError('MODEL_NOT_AVAILABLE','配置的模型不在账户可用模型列表中。')
+            # Listing models only verifies authentication. A tiny generation call
+            # also catches accounts that cannot actually run completions.
+            await self.model.understand({},[], '你好')
             self.repo = Repository(self.pool)
             self.graph = build_graph(self.repo,self.model,AsyncPostgresSaver(self.graph_pool))
             self.ready = True
@@ -82,12 +87,12 @@ class Application:
             raise self.error
 
     async def chat(self, owner, thread, request_id, message, expected_revision):
-        async with self.repo.guard(owner,thread):
+        async with self.slots, self.repo.guard(owner,thread):
             run = await self.repo.accept(owner,thread,request_id,message,expected_revision)
             return await self.execute(run)
 
     async def retry(self, owner, thread, run_id):
-        async with self.repo.guard(owner,thread):
+        async with self.slots, self.repo.guard(owner,thread):
             run = await self.repo.run(run_id)
             if not run or str(run['thread_id']) != thread:
                 raise AppError('NOT_FOUND','运行记录不存在。',404)

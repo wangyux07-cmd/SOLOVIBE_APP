@@ -1,6 +1,6 @@
 import { StrictMode, Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import BaselineApp from './BaselineApp';
+import StageOneApp from './StageOneApp';
 import './index.css';
 
 // 1. 定义一个高强度的“错误捕获盾牌”
@@ -42,7 +42,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <BaselineApp />
+      <StageOneApp />
     </ErrorBoundary>
   </StrictMode>,
 );

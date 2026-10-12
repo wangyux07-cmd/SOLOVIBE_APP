@@ -133,7 +133,9 @@ class Repository:
 
     async def complete(self, run_id):
         async with self.pool.connection() as conn, conn.transaction():
-            await conn.execute("UPDATE solovibe_v1.runs SET status='completed',error_code=NULL WHERE run_id=%s AND output IS NOT NULL", (run_id,))
+            completed = await conn.execute("UPDATE solovibe_v1.runs SET status='completed',error_code=NULL WHERE run_id=%s AND output IS NOT NULL", (run_id,))
+            if completed.rowcount != 1:
+                raise AppError('RUN_OUTPUT_MISSING','图运行没有产生可保存的回复，不能结束本轮。')
             await conn.execute("UPDATE solovibe_v1.conversations SET active_run=NULL WHERE active_run=%s", (run_id,))
 
     async def fail(self, run_id, code):

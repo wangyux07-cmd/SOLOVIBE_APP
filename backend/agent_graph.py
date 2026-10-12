@@ -1,10 +1,10 @@
-"""Stage 1 StateGraph draft, paused before HTTP integration and live validation."""
+"""Stage 1 StateGraph: HTTP requests traverse this compiled graph."""
 import time
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from domain.context import ContextSnapshot, make_reply
+from domain.context import ContextSnapshot, make_reply, apply_patch
 
 
 class AgentState(TypedDict):
@@ -36,6 +36,9 @@ def build_graph(repository, model, checkpointer=None):
 
     async def understand_context(state):
         proposal, meta = await model.understand(state['context_snapshot'],state['recent_messages'],state['input_event']['content'])
+        # Reject unsupported patches before checkpointing them so retry re-extracts.
+        apply_patch(ContextSnapshot.model_validate(state['context_snapshot']),proposal,
+                    state['input_event']['content'],state['input_event']['message_id'])
         return {'understanding':proposal.model_dump(), 'model_meta':meta}
 
     async def validate_and_commit_patch(state):

@@ -16,16 +16,23 @@ def is_configured(name: str) -> bool:
     )
 
 
+def database_configured() -> bool:
+    from domain.errors import AppError
+    from services.application import database_dsn
+    try:
+        database_dsn()
+        return True
+    except AppError:
+        return False
+
+
 def configuration_status() -> dict:
     """Configured means present, never authenticated or verified."""
     services = {
         "model": is_configured("DEEPSEEK_API_KEY"),
         "maps": is_configured("AMAP_API_KEY"),
         "search": is_configured("TAVILY_API_KEY") or is_configured("SERPER_API_KEY"),
-        "database": all(
-            is_configured(name)
-            for name in ("SUPABASE_URL", "SUPABASE_KEY", "DATABASE_URL")
-        ),
+        "database": database_configured(),
     }
     return {
         name: {"configured": configured, "verification": "not_checked"}
