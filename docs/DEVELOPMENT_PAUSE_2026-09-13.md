@@ -6,7 +6,7 @@
 
 - 工作目录：`D:\SOLOVIBE_APP`。
 - 远端：`https://github.com/wangyux07-cmd/SOLOVIBE_APP.git`。
-- 当前分支：`codex/redesign-v1`。
+- 当前维护分支：`Refactor`（已更名）。
 - 已推送阶段零：`2a7870fc`、`731415ee`；远端基线为 `731415ee`。
 - 本次阶段一草稿仅做本地 WIP 提交，不追加推送，不合并主分支。
 - `D:\SOLOVIBE` 是另一个仓库，不是本轮代码开发目录。

@@ -1,6 +1,6 @@
 # SoloVibe 开发基线与阶段 0 交付
 
-日期：2026-09-13。正式目录：`D:\SOLOVIBE_APP`。开发分支：`codex/redesign-v1`。
+日期：2026-09-13。正式目录：`D:\SOLOVIBE_APP`。开发分支现名：`Refactor`。
 
 ## 当前交付范围
 
