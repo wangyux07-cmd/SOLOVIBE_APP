@@ -31,7 +31,7 @@ def configuration_status() -> dict:
     services = {
         "model": is_configured("DEEPSEEK_API_KEY"),
         "maps": is_configured("AMAP_API_KEY"),
-        "search": is_configured("TAVILY_API_KEY") or is_configured("SERPER_API_KEY"),
+        "search": is_configured("TAVILY_API_KEY"),
         "database": database_configured(),
     }
     return {

@@ -43,6 +43,14 @@ CREATE TABLE IF NOT EXISTS solovibe_v1.rolling_summaries (
  token_estimate integer NOT NULL,
  generated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS solovibe_v1.plan_sets (
+ run_id uuid PRIMARY KEY REFERENCES solovibe_v1.runs,
+ thread_id uuid NOT NULL REFERENCES solovibe_v1.conversations,
+ context_revision integer NOT NULL,
+ payload jsonb NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE INDEX IF NOT EXISTS conversations_owner ON solovibe_v1.conversations(owner_id);
 CREATE INDEX IF NOT EXISTS node_events_run ON solovibe_v1.node_events(run_id, id);
+CREATE INDEX IF NOT EXISTS plan_sets_thread ON solovibe_v1.plan_sets(thread_id, created_at DESC);
 REVOKE ALL ON SCHEMA solovibe_v1, solovibe_graph FROM PUBLIC;

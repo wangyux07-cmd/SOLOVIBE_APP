@@ -62,8 +62,16 @@ class Repository:
                 'SELECT revision,covered_until_sequence FROM solovibe_v1.rolling_summaries WHERE thread_id=%s',
                 (thread,),
             )).fetchone()
+            plan_set = await (await conn.execute(
+                '''SELECT p.payload FROM solovibe_v1.plan_sets p
+                   JOIN solovibe_v1.runs r ON r.run_id=p.run_id AND r.status='completed'
+                   WHERE p.thread_id=%s AND p.context_revision=%s
+                   ORDER BY p.created_at DESC LIMIT 1''',
+                (thread, row['snapshot']['revision']),
+            )).fetchone()
         return {'thread_id': str(row['thread_id']), 'snapshot': row['snapshot'], 'messages': messages,
                 'pending_run': pending,
+                'plan_set': plan_set['payload'] if plan_set else None,
                 'context_memory': {'summary_revision': summary['revision'] if summary else 0,
                                    'covered_until_sequence': summary['covered_until_sequence'] if summary else 0,
                                    'raw_messages_retained': True}}
@@ -201,6 +209,10 @@ class Repository:
             row = await (await conn.execute("UPDATE solovibe_v1.conversations SET sequence=sequence+1 WHERE thread_id=%s RETURNING sequence", (run['thread_id'],))).fetchone()
             await conn.execute("INSERT INTO solovibe_v1.messages VALUES (%s,%s,%s,%s,'assistant',%s)", (uuid4(),run['thread_id'],run_id,row['sequence'],reply['response']))
             await conn.execute("UPDATE solovibe_v1.runs SET output=%s WHERE run_id=%s", (Jsonb(output),run_id))
+            if 'plans' in reply:
+                await conn.execute('''INSERT INTO solovibe_v1.plan_sets(run_id,thread_id,context_revision,payload)
+                    VALUES (%s,%s,%s,%s) ON CONFLICT (run_id) DO NOTHING''',
+                    (run_id,run['thread_id'],run['committed_snapshot']['revision'],Jsonb(reply)))
             return output
 
     async def complete(self, run_id):

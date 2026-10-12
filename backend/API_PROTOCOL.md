@@ -1,5 +1,11 @@
 # SoloVibe AI Agent API Protocol Specification
 
+> Historical prototype specification. The running Stage 3 API contract is implemented in
+> [`main.py`](main.py), with LangGraph in [`agent_graph.py`](agent_graph.py).
+> `POST /api/chat` requires `thread_id`, `request_id`, and `expected_revision`;
+> `GET /api/conversations/{thread_id}/plans` reads the latest persisted plan set.
+> The SSE endpoints described below are not active in the redesign.
+
 **Version:** 2.0.0 (Industrial-Grade)
 **Status:** Protocol Redesign - Event-Driven Architecture
 **Last Updated:** 2026-06-06

@@ -143,5 +143,5 @@ def make_reply(snapshot: ContextSnapshot, intent: str) -> dict:
         return {"kind": "clarification", "response": f"已记下：{summary}。{questions[missing[0]]}", "missing_fields": missing}
     return {
         "kind": "context_ready", "missing_fields": [],
-        "response": f"出行条件已整理好：{summary}。真实地点检索将在阶段 3 接入，这一阶段先为你准确保留这些条件。",
+        "response": f"出行条件已整理好：{summary}。正在查询真实地点与步行路线。",
     }

@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 
 from domain.context import ContextSnapshot, make_reply, apply_patch
 from services.context_builder import ContextBuilder
+from services.planning import create_planner
 
 
 class AgentState(TypedDict):
@@ -21,11 +22,18 @@ class AgentState(TypedDict):
     understanding: dict
     model_meta: dict
     reply: dict
+    evidence: dict
+    vetted_places: list[dict]
     output: dict
 
 
-def build_graph(repository, model, checkpointer=None, context_builder=None):
+def build_graph(repository, model, checkpointer=None, context_builder=None, planner=None):
     builder = context_builder or (ContextBuilder(repository, model) if repository and model else None)
+    def planning_service():
+        nonlocal planner
+        if planner is None:
+            planner = create_planner()
+        return planner
     async def accept_event(state):
         run = await repository.run(state['run_id'])
         return {
@@ -34,6 +42,7 @@ def build_graph(repository, model, checkpointer=None, context_builder=None):
             'context_snapshot':run['base_snapshot'], 'recent_messages':[],
             'rolling_summary':None, 'context_budget':{},
             'understanding':{}, 'model_meta':{}, 'reply':{}, 'output':{},
+            'evidence':{}, 'vetted_places':[],
         }
 
     async def prepare_context(state):
@@ -67,7 +76,22 @@ def build_graph(repository, model, checkpointer=None, context_builder=None):
         return {'context_snapshot':snapshot}
 
     def route(state):
-        return make_reply(ContextSnapshot.model_validate(state['context_snapshot']), state['understanding']['intent'])['kind']
+        kind = make_reply(ContextSnapshot.model_validate(state['context_snapshot']), state['understanding']['intent'])['kind']
+        return 'collect_evidence' if kind == 'context_ready' else kind
+
+    async def collect_evidence(state):
+        return {'evidence':await planning_service().collect(ContextSnapshot.model_validate(state['context_snapshot']))}
+
+    async def verify_feasibility(state):
+        return {'vetted_places':planning_service().verify(ContextSnapshot.model_validate(state['context_snapshot']),state['evidence'])}
+
+    async def enrich_sources(state):
+        snapshot = ContextSnapshot.model_validate(state['context_snapshot'])
+        return {'vetted_places':await planning_service().enrich(snapshot.constraints.city,state['vetted_places'])}
+
+    async def publish_plans(state):
+        return {'reply':planning_service().publish(ContextSnapshot.model_validate(state['context_snapshot']),
+                                        state['vetted_places'],state['evidence'])}
 
     async def publish(state):
         return {'reply':make_reply(ContextSnapshot.model_validate(state['context_snapshot']),state['understanding']['intent'])}
@@ -92,7 +116,9 @@ def build_graph(repository, model, checkpointer=None, context_builder=None):
                'compact_history':compact_history,
                'understand_context':understand_context, 'validate_and_commit_patch':validate_and_commit_patch,
                'clarification':publish, 'state_summary':publish, 'supportive':publish,
-               'context_ready':publish, 'persist_reply':persist_reply}
+               'collect_evidence':collect_evidence, 'verify_feasibility':verify_feasibility,
+               'enrich_sources':enrich_sources, 'publish_plans':publish_plans,
+               'persist_reply':persist_reply}
     for name, action in actions.items():
         graph.add_node(name,tracked(name,action))
     graph.add_edge(START,'accept_event')
@@ -100,9 +126,13 @@ def build_graph(repository, model, checkpointer=None, context_builder=None):
     graph.add_edge('prepare_context','compact_history')
     graph.add_edge('compact_history','understand_context')
     graph.add_edge('understand_context','validate_and_commit_patch')
-    routes = {name:name for name in ('clarification','state_summary','supportive','context_ready')}
+    routes = {name:name for name in ('clarification','state_summary','supportive','collect_evidence')}
     graph.add_conditional_edges('validate_and_commit_patch',route,routes)
-    for name in routes:
+    for name in ('clarification','state_summary','supportive'):
         graph.add_edge(name,'persist_reply')
+    graph.add_edge('collect_evidence','verify_feasibility')
+    graph.add_edge('verify_feasibility','enrich_sources')
+    graph.add_edge('enrich_sources','publish_plans')
+    graph.add_edge('publish_plans','persist_reply')
     graph.add_edge('persist_reply',END)
     return graph.compile(checkpointer=checkpointer)

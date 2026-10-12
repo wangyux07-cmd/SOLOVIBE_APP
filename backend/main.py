@@ -14,8 +14,8 @@ from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.4.0'
-STAGE = 'stage2'
+VERSION = '0.5.0'
+STAGE = 'stage3'
 COOKIE = 'solovibe_session'
 
 
@@ -124,6 +124,12 @@ def create_app():
     async def conversation(thread_id:UUID,request:Request):
         return await runtime.repo.read(await owner(request),str(thread_id))
 
+    @app.get('/api/conversations/{thread_id}/plans')
+    async def plans(thread_id:UUID,request:Request):
+        current = await runtime.repo.read(await owner(request),str(thread_id))
+        return {'thread_id':str(thread_id), 'context_revision':current['snapshot']['revision'],
+                'plan_set':current['plan_set']}
+
     @app.post('/api/chat')
     async def chat(body:ChatRequest,request:Request):
         return await runtime.chat(await owner(request),str(body.thread_id),str(body.request_id),body.message,body.expected_revision)
@@ -140,7 +146,7 @@ def create_app():
     @app.post('/api/v1/threads/{thread_id}/resume')
     @app.get('/api/v2/wander-plans')
     async def future_feature(thread_id:str|None=None):
-        raise AppError('FEATURE_NOT_IMPLEMENTED','此入口属于后续阶段，尚未执行地点查询或行动。')
+        raise AppError('FEATURE_NOT_IMPLEMENTED','旧版入口不可用；请在已授权会话中使用 /api/conversations/{thread_id}/plans 查询真实方案。')
 
     return app
 

@@ -11,6 +11,7 @@ from agent_graph import build_graph
 from domain.errors import AppError
 from persistence.repository import Repository
 from services.model_client import DeepSeekClient
+from services.planning import create_planner
 
 
 def database_dsn():
@@ -41,7 +42,7 @@ def make_pool(dsn, graph=False):
 
 class Application:
     def __init__(self):
-        self.pool = self.graph_pool = self.model = self.graph = self.repo = None
+        self.pool = self.graph_pool = self.model = self.graph = self.repo = self.planner = None
         self.ready = False
         self.slots = asyncio.Semaphore(3)
         self.error = AppError('STARTING','服务正在启动。')
@@ -54,7 +55,7 @@ class Application:
             self.pool = make_pool(dsn)
             await self.pool.open(wait=True,timeout=12)
             async with self.pool.connection() as conn:
-                tables = await (await conn.execute("SELECT to_regclass('solovibe_v1.conversations') AS business, to_regclass('solovibe_v1.rolling_summaries') AS summaries, to_regclass('solovibe_graph.checkpoints') AS checkpoints")).fetchone()
+                tables = await (await conn.execute("SELECT to_regclass('solovibe_v1.conversations') AS business, to_regclass('solovibe_v1.rolling_summaries') AS summaries, to_regclass('solovibe_v1.plan_sets') AS plans, to_regclass('solovibe_graph.checkpoints') AS checkpoints")).fetchone()
                 if not all(tables.values()):
                     raise AppError('MIGRATION_REQUIRED','请先运行 scripts/migrate_stage1.py 初始化阶段一数据表。')
             self.graph_pool = make_pool(dsn,graph=True)
@@ -69,7 +70,8 @@ class Application:
             # also catches accounts that cannot actually run completions.
             await self.model.understand({},[], '你好')
             self.repo = Repository(self.pool)
-            self.graph = build_graph(self.repo,self.model,AsyncPostgresSaver(self.graph_pool))
+            self.planner = create_planner()
+            self.graph = build_graph(self.repo,self.model,AsyncPostgresSaver(self.graph_pool),planner=self.planner)
             self.ready = True
             self.error = None
         except AppError as exc:
@@ -80,6 +82,10 @@ class Application:
             await self.close()
 
     async def close(self):
+        if self.planner:
+            await self.planner.maps.close()
+            if self.planner.web:
+                await self.planner.web.close()
         if self.model:
             await self.model.close()
         if self.graph_pool:

@@ -6,7 +6,10 @@ type Health = { ready: boolean; stage: string; blocker?: { code: string; message
 type Snapshot = { revision: number; constraints: Record<string, string | number | string[] | null>; sources: Record<string, { quote: string; basis: string; revision: number }> };
 type Message = { message_id: string; role: 'user' | 'assistant'; content: string; sequence: number };
 type Pending = { run_id: string; status: string; error_code: string | null } | null;
+type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: { walking_minutes: number; distance_meters: number; observed_at: string }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; identity_status: string }[] };
+type PlanSet = { kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[] };
 type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]; pending_run: Pending;
+  plan_set: PlanSet | null;
   context_memory: { summary_revision: number; covered_until_sequence: number; raw_messages_retained: boolean } };
 type ChatResult = { response: string; kind: string; run_id: string; snapshot: Snapshot; model: { provider: string; model: string; input_tokens: number | null; output_tokens: number | null; actual_call: boolean } };
 type TraceEvent = { node: string; status: string; elapsed_ms: number };
@@ -112,12 +115,12 @@ export default function StageOneApp() {
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 2 · 连续对话与上下文</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 3 · 真实地点与路线</span>
       </header>
 
       <section className="py-9">
         <h1 className="text-3xl font-medium tracking-tight md:text-4xl">把当下想做的事，慢慢说清楚。</h1>
-        <p className="mt-4 max-w-3xl text-sm leading-7 text-[#a8b6ac]">出行条件会持续保存。较长对话按需整理早期内容，最近几轮仍保留原文；地点、商家、路线和套餐查询尚未接入。</p>
+        <p className="mt-4 max-w-3xl text-sm leading-7 text-[#a8b6ac]">告诉我城市、出发位置、预算与时间。地点和步行路线来自高德；网页资料只展示来源，未经核实的价格、营业时间与套餐会标成未知。</p>
         <div className="mt-5 flex items-center gap-3 text-sm"><span className={health?.ready ? 'text-[#bdd7a2]' : 'text-orange-200'}>{health?.ready ? '数据库与模型启动检查已通过' : health ? `尚未就绪：${health.blocker?.message ?? '请检查后端配置'}` : '正在检查服务…'}</span><button type="button" aria-label="刷新服务状态" onClick={() => void refresh()} className="rounded-lg p-2 hover:bg-white/10"><RefreshCw size={16} /></button></div>
       </section>
 
@@ -138,7 +141,23 @@ export default function StageOneApp() {
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">运行记录</h2>{last && <p className="mt-3 text-xs leading-6 text-[#a8b6ac]">{last.model.provider} / {last.model.model} · 输入 {last.model.input_tokens ?? '未知'} tokens · 输出 {last.model.output_tokens ?? '未知'} tokens · {last.kind}</p>}{trace.length ? <ol className="mt-4 space-y-2">{trace.map((event,index) => <li key={`${index}-${event.node}`} className="flex justify-between gap-2 border-t border-white/10 pt-2 text-xs"><span>{event.node}</span><span className={event.status === 'completed' ? 'text-[#bdd7a2]' : 'text-orange-200'}>{event.status} · {event.elapsed_ms} ms</span></li>)}</ol> : <p className="mt-4 text-sm text-[#a8b6ac]">完成一次真实请求后显示节点执行记录。</p>}</section>
         </aside>
       </div>
-      <footer className="mt-10 text-xs text-[#84938a]">阶段 2 开发预览 · 不生成未经查询的地点或行动结果。</footer>
+      {conversation?.plan_set?.plans.length ? <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7" aria-label="真实地点方案">
+        <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-medium">可考虑的地点</h2><p className="text-xs text-[#a8b6ac]">依据当前条件版本 {conversation.snapshot.revision} · 仅路线已核实</p></div>
+        <div className="mt-5 grid gap-4 md:grid-cols-3">{conversation.plan_set.plans.map(plan => <article key={plan.plan_id} className="rounded-xl border border-white/10 bg-[#19231d] p-5">
+          <p className="text-xs text-[#bdd7a2]">{plan.place.category || '地点'} · 高德 POI {plan.place.poi_id}</p>
+          <h3 className="mt-2 text-lg font-medium">{plan.place.name}</h3>
+          <p className="mt-2 text-sm text-[#a8b6ac]">{plan.place.address}</p>
+          <p className="mt-4 text-sm">步行约 {plan.route.walking_minutes} 分钟 · {plan.route.distance_meters} 米</p>
+          <p className="mt-2 text-xs text-[#a8b6ac]">高德记录：评分 {plan.facts?.rating ?? '未知'} · 参考人均 {plan.facts?.average_cost_cny == null ? '未知' : `${plan.facts.average_cost_cny} 元`}</p>
+          {plan.facts?.recorded_hours && <p className="mt-1 text-xs text-[#a8b6ac]">登记营业时间：{plan.facts.recorded_hours}（非实时）</p>}
+          <p className="mt-2 text-xs leading-6 text-[#a8b6ac]">{plan.tradeoff}</p>
+          <p className="mt-2 text-xs text-orange-100">待核实：{plan.unknowns.join('、')}</p>
+          <a className="mt-4 inline-block text-sm text-[#bdd7a2] underline" href={plan.place.source_url} target="_blank" rel="noopener noreferrer">在高德查看地点</a>
+          {plan.web_sources.length > 0 && <div className="mt-4 border-t border-white/10 pt-3"><p className="text-xs text-[#a8b6ac]">网页搜索结果 · 未核实是否同一分店</p><ul className="mt-2 space-y-2">{plan.web_sources.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#bdd7a2] underline">{source.title || source.url}</a></li>)}</ul></div>}
+          {plan.web_status !== 'results_unverified' && <p className="mt-3 text-xs text-[#a8b6ac]">网页资料：{plan.web_status === 'not_configured' ? '未配置搜索服务' : '本次未取得可展示结果'}</p>}
+        </article>)}</div>
+      </section> : null}
+      <footer className="mt-10 text-xs text-[#84938a]">阶段 3 开发预览 · 尚不能预订或替你执行行动；出发前请再次核实营业和费用。</footer>
     </div>
   </main>;
 }
