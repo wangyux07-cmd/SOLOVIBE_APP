@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: V1 redesign in progress.** Stage 0 has been delivered. Stage 1 now has a wired graph, API, and developer UI, but live model generation and database persistence have not passed integration testing. The capabilities below describe the intended V1 product; they are not all available yet.
+> **Project status: V1 redesign in progress.** Stage 0 has been delivered. Stage 1 now has a wired graph, API, and developer UI. A standalone model extraction request has succeeded, while database persistence and the complete conversation flow still await integration testing. The capabilities below describe the intended V1 product; they are not all available yet.
 
 ## Why SoloVibe?
 

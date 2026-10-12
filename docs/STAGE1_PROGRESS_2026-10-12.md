@@ -37,7 +37,7 @@ flowchart TD
 | 前端类型检查、生产构建 | 通过 | 代码静态与打包 |
 | 浏览器测试 | 2 passed | 本地实际服务状态、移动宽度、断线提示 |
 | DeepSeek `/models` | 鉴权成功，可列出 `deepseek-flash` | 仅模型列表 |
-| DeepSeek `/chat/completions` | HTTP 402，生成失败 | 账户目前无法执行真实生成 |
+| DeepSeek `/chat/completions` | 首次 HTTP 402；复查时余额接口返回可用，简单生成和项目结构化提取均成功 | 已验证模型适配层真实调用与 JSON 补丁校验；完整 Graph 仍未联调 |
 | PostgreSQL 探针 | `password_placeholder`，未尝试连接 | 缺真实数据库密码 |
 | 本地 `/api/v1/health` | `ready=false`，`DATABASE_NOT_CONFIGURED` | API 如实阻断会话与聊天 |
 
@@ -46,8 +46,7 @@ flowchart TD
 ## 完成阶段一仍需
 
 1. 在被 Git 忽略的 `backend/.env` 中填入真实 PostgreSQL `DATABASE_URL`，并确认使用直连或 Session pooler；密码不能提交仓库或发到聊天。
-2. 使 DeepSeek 账户的生成请求可成功执行。列模型成功不足以通过就绪门槛。
-3. 在真实数据库执行 `scripts/migrate_stage1.py`，核对业务表和原生 checkpoint schema。
-4. 用真实模型和数据库验证多轮更正、状态来源、重启恢复、请求重放、并发、跨浏览器隔离与故障重试。
+2. 在真实数据库执行 `scripts/migrate_stage1.py`，核对业务表和原生 checkpoint schema。
+3. 用真实模型和数据库验证多轮更正、状态来源、重启恢复、请求重放、并发、跨浏览器隔离与故障重试。
 
 以上完成前，不能宣称阶段一完全 OK。阶段二至阶段五按计划继续分批开发。
