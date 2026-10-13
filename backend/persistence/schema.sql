@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS solovibe_v1.runs (
  error_code text, created_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE(thread_id, request_id)
 );
+ALTER TABLE solovibe_v1.runs ADD COLUMN IF NOT EXISTS input_patch jsonb;
+ALTER TABLE solovibe_v1.runs ADD COLUMN IF NOT EXISTS recheck_poi_id text;
+ALTER TABLE solovibe_v1.runs ADD COLUMN IF NOT EXISTS recheck_plan_set_id uuid;
 CREATE TABLE IF NOT EXISTS solovibe_v1.messages (
  message_id uuid PRIMARY KEY, thread_id uuid NOT NULL REFERENCES solovibe_v1.conversations,
  run_id uuid NOT NULL REFERENCES solovibe_v1.runs,
@@ -83,6 +86,18 @@ CREATE TABLE IF NOT EXISTS solovibe_v1.saved_plans (
  thread_id uuid NOT NULL REFERENCES solovibe_v1.conversations,
  plan_snapshot jsonb NOT NULL,
  saved_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS solovibe_v1.user_feedback (
+ feedback_id uuid PRIMARY KEY,
+ thread_id uuid NOT NULL REFERENCES solovibe_v1.conversations,
+ owner_id uuid NOT NULL REFERENCES solovibe_v1.sessions,
+ plan_set_id uuid NOT NULL REFERENCES solovibe_v1.plan_sets(run_id),
+ plan_id text NOT NULL,
+ request_id uuid NOT NULL,
+ category text NOT NULL CHECK(category IN ('considered','went','did_not_go','other')),
+ note text NOT NULL CHECK(length(note) BETWEEN 1 AND 500),
+ created_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(thread_id, request_id)
 );
 -- V3 public venue evidence contains no user location or conversation content.
 CREATE TABLE IF NOT EXISTS solovibe_v1.venue_identity (

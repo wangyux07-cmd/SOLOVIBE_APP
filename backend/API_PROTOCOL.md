@@ -6,7 +6,7 @@
 
 `POST /api/session` creates or reuses an anonymous browser session. The server sets an HTTP-only `solovibe_session` cookie. Every conversation, run, plan, and action read/write is scoped to its owner. The browser sends credentials with API requests. `GET /api/v1/health` reports service readiness; a configured key is not proof that the provider call succeeds.
 
-JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"v3-4"}`. Invalid input is rejected by FastAPI validation. Allowed CORS origins come from `CORS_ORIGINS`; browser-originated POSTs from other origins receive `ORIGIN_DENIED`.
+JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"v3-5"}`. Invalid input is rejected by FastAPI validation. Allowed CORS origins come from `CORS_ORIGINS`; browser-originated POSTs from other origins receive `ORIGIN_DENIED`.
 
 ## Conversation and planning
 
@@ -17,13 +17,21 @@ JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"v3-
 | `GET /api/conversations/{thread_id}` | Read messages, structured snapshot, current plan set, pending run, latest action, and saved plans. |
 | `POST /api/chat` | Run the compiled LangGraph chat branch; synchronous JSON response. |
 | `POST /api/conversations/{thread_id}/origin` | After a user-clicked browser location permission grant, convert WGS84 coordinates to Amap coordinates, reverse-geocode, and version the origin. |
+| `POST /api/conversations/{thread_id}/adjustments` | Apply one explicit, version-bound condition edit and create a new plan set. |
+| `POST /api/conversations/{thread_id}/recheck` | Refresh one exact POI from the current plan set without a nearby-place search. |
 | `GET /api/conversations/{thread_id}/plans` | Read the current plan set and context revision. |
+| `GET /api/conversations/{thread_id}/runs/{run_id}` | Read the owned run's durable state or final output. |
+| `GET /api/conversations/{thread_id}/requests/{request_id}` | Recover the owned run associated with an idempotency key. |
+| `GET /api/conversations/{thread_id}/timeline` | Read owned runs, node events, action states, and user-reported feedback. |
+| `POST /api/conversations/{thread_id}/feedback` | Store a bounded user report against a current or historical plan. |
 | `GET /api/conversations/{thread_id}/runs/{run_id}/trace` | Read persisted node events for an owned run. |
 | `POST /api/conversations/{thread_id}/runs/{run_id}/retry` | Retry a recoverable pending run. |
 
 `POST /api/chat` requires a UUID `thread_id`, UUID `request_id`, nonblank `message` (up to 8000 characters), and nonnegative `expected_revision`. A repeated request ID must not create a second run. A stale revision is rejected. Planning may return `options_ready`, `clarification`, `no_options`, or `provider_unavailable`; the client must inspect `kind` and `evidence_status` rather than assuming every 200 response contains options.
 
 A plan contains an Amap POI identity and address, independently queried outbound and return walking routes, optional Amap detail facts, optional Tavily leads, and explicit unknowns. Both routes carry duration, distance, coordinates, query time, and provider polyline points when supplied. `feasibility_checks.outbound_walk=pass` means the retrieved outbound route passed the time and walking bounds. `full_activity_time=pass` requires both routes plus a user-selected `desired_dwell_minutes`, with a fixed 10-minute buffer; otherwise it remains `unknown` or the plan is excluded if it exceeds the hard limit. `budget` and `open_now` remain `unknown` without further evidence. Amap `specialty_tags` are historical POI descriptors, not a live menu or current deal. Tavily hits mention the venue name but retain `identity_status=unverified`; they cannot establish the correct branch or a current price by themselves.
+
+An adjustment accepts exactly one permitted field and explicit value. It bypasses language-model extraction, is written as a traceable user message, and is still committed by the normal LangGraph branch. Each planning run persists a new immutable plan set, with plan IDs namespaced by that run. The next plan can reuse evidence only if POI identity, routes, source observations, timing, and the dependency matrix all remain valid: narrowing time/walk limits or changing budget can reuse fresh evidence; a changed return destination rechecks return routes; changing city, origin, interests, exclusions, or widening a search constraint performs a fresh collection. A targeted recheck only accepts a POI that belongs to the current plan set and refreshes its detail and both routes. Any condition change invalidates an unconfirmed action before creating its new run.
 
 The origin request requires `request_id`, `expected_revision`, WGS84 `longitude`/`latitude`, and browser-reported `accuracy_m` (at most 300 m). The server uses Amap coordinate conversion and reverse geocoding before saving city, address, Amap coordinate, source, accuracy, and observation time. It requires the conversation owner, rejects stale revisions and active runs, and invalidates pending action confirmation. The browser requests location permission only after the user clicks. A browser-derived origin expires for planning and navigation after 30 minutes; the user can locate again or enter a place manually. Changing city or location text through chat clears the stored browser coordinate. The return destination defaults to the origin; `return_location_text` explicitly overrides it. `desired_dwell_minutes` is the user's plan, not an objective venue duration. The UI renders provider road polylines as a route sketch without a street basemap.
 
@@ -50,6 +58,10 @@ The optional `MERCHANT_LIVE_*` configuration enables one fixed, merchant-authori
 | `POST /api/actions/{action_id}/handoff` | Record one request to open a prepared navigation link. |
 
 Preparation never executes the action. A confirmed save writes one immutable saved-plan snapshot. A confirmed navigation action rechecks the same POI, geocodes the origin again, and obtains a fresh walking route before returning `navigation_handoff_ready` with an Amap URI. The URI and `handoff_requested_at` do not prove that the map app opened, the user departed, or the user arrived. New chat input invalidates an unrelated pending confirmation before it proceeds.
+
+## V3-5 recovery and feedback
+
+The client reads server-side run state after refresh rather than resending an uncertain request. The same request ID replays only the original run or its saved result. Timeline data is owner-scoped. Feedback has `source_kind: user_report`; categories such as `went` record only what the user said and never prove arrival, spending, booking, or merchant availability.
 
 ## Inactive historical routes
 

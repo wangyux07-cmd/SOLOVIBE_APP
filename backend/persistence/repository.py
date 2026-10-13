@@ -11,6 +11,17 @@ from domain.errors import AppError, Conflict
 from persistence.actions import ActionRepository, public_action
 
 
+def request_fingerprint(revision, message, input_patch=None,
+                        recheck_poi_id=None, recheck_plan_set_id=None):
+    value = f'{revision}\n{message}'
+    if input_patch is not None:
+        value += '\n' + json.dumps(input_patch, ensure_ascii=False, sort_keys=True,
+                                    separators=(',', ':'))
+    if recheck_poi_id is not None:
+        value += '\nrecheck:' + recheck_poi_id + ':' + str(recheck_plan_set_id)
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
 class Repository:
     def __init__(self, pool):
         self.pool = pool
@@ -141,8 +152,10 @@ class Repository:
             finally:
                 await conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 7314))", (thread,))
 
-    async def accept(self, owner, thread, request_id, message, expected_revision):
-        fingerprint = hashlib.sha256(f'{expected_revision}\n{message}'.encode()).hexdigest()
+    async def accept(self, owner, thread, request_id, message, expected_revision,
+                     input_patch=None, recheck_poi_id=None, recheck_plan_set_id=None):
+        fingerprint = request_fingerprint(expected_revision, message, input_patch,
+                                          recheck_poi_id, recheck_plan_set_id)
         async with self.pool.connection() as conn, conn.transaction():
             conversation = await (await conn.execute("SELECT * FROM solovibe_v1.conversations WHERE thread_id=%s AND owner_id=%s FOR UPDATE", (thread, owner))).fetchone()
             if not conversation:
@@ -158,8 +171,10 @@ class Repository:
                 raise Conflict('STALE_REVISION', '状态已有更新，请刷新后重新发送。')
             run_id, message_id = str(uuid4()), str(uuid4())
             run = await (await conn.execute(
-                "INSERT INTO solovibe_v1.runs(run_id,thread_id,request_id,fingerprint,message_id,input_text,base_snapshot) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (run_id,thread,request_id,fingerprint,message_id,message,Jsonb(conversation['snapshot'])),
+                "INSERT INTO solovibe_v1.runs(run_id,thread_id,request_id,fingerprint,message_id,input_text,base_snapshot,input_patch,recheck_poi_id,recheck_plan_set_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                (run_id,thread,request_id,fingerprint,message_id,message,Jsonb(conversation['snapshot']),
+                 Jsonb(input_patch) if input_patch is not None else None,
+                 recheck_poi_id, recheck_plan_set_id),
             )).fetchone()
             await conn.execute("UPDATE solovibe_v1.conversations SET active_run=%s,sequence=sequence+1 WHERE thread_id=%s", (run_id,thread))
             await conn.execute("INSERT INTO solovibe_v1.messages VALUES (%s,%s,%s,%s,'user',%s)", (message_id,thread,run_id,conversation['sequence']+1,message))
@@ -173,6 +188,20 @@ class Repository:
         async with self.pool.connection() as conn:
             return await (await conn.execute("SELECT * FROM solovibe_v1.runs WHERE thread_id=%s AND request_id=%s",
                                              (thread, request_id))).fetchone()
+
+    async def prior_plan(self, run_id):
+        """Latest completed plan for the run's starting context, if any."""
+        async with self.pool.connection() as conn:
+            row = await (await conn.execute('''SELECT p.run_id,p.payload,p.created_at
+                FROM solovibe_v1.runs current
+                JOIN solovibe_v1.plan_sets p ON p.thread_id=current.thread_id
+                JOIN solovibe_v1.runs previous ON previous.run_id=p.run_id
+                WHERE current.run_id=%s AND previous.status='completed'
+                  AND p.context_revision=(current.base_snapshot->>'revision')::integer
+                  AND p.created_at<current.created_at
+                ORDER BY p.created_at DESC LIMIT 1''', (run_id,))).fetchone()
+        return ({**row['payload'], 'plan_set_id': str(row['run_id']),
+                 'created_at': row['created_at']} if row else None)
 
     async def recent(self, thread, run_id):
         async with self.pool.connection() as conn:
@@ -290,3 +319,64 @@ class Repository:
         await self.read(owner, thread)
         async with self.pool.connection() as conn:
             return await (await conn.execute("SELECT e.node,e.status,e.elapsed_ms,e.created_at FROM solovibe_v1.node_events e JOIN solovibe_v1.runs r USING(run_id) WHERE e.run_id=%s AND r.thread_id=%s ORDER BY e.id", (run_id,thread))).fetchall()
+
+    async def run_status(self, owner, thread, run_id=None, request_id=None):
+        async with self.pool.connection() as conn:
+            row = await (await conn.execute('''SELECT r.run_id,r.request_id,r.status,
+                r.error_code,r.output,r.created_at FROM solovibe_v1.runs r
+                JOIN solovibe_v1.conversations c ON c.thread_id=r.thread_id
+                WHERE r.thread_id=%s AND c.owner_id=%s
+                  AND ((%s::uuid IS NOT NULL AND r.run_id=%s::uuid)
+                    OR (%s::uuid IS NOT NULL AND r.request_id=%s::uuid))''',
+                (thread, owner, run_id, run_id, request_id, request_id))).fetchone()
+        if not row:
+            raise AppError('NOT_FOUND', '运行不存在或不属于当前浏览器。', 404)
+        return {**row, 'run_id': str(row['run_id']),
+                'request_id': str(row['request_id'])}
+
+    async def timeline(self, owner, thread):
+        await self.read(owner, thread)
+        async with self.pool.connection() as conn:
+            runs = await (await conn.execute('''SELECT run_id,status,error_code,created_at
+                FROM solovibe_v1.runs WHERE thread_id=%s ORDER BY created_at DESC LIMIT 30''',
+                (thread,))).fetchall()
+            events = await (await conn.execute('''SELECT e.run_id,e.node,e.status,e.elapsed_ms,e.created_at
+                FROM solovibe_v1.node_events e JOIN solovibe_v1.runs r USING(run_id)
+                WHERE r.thread_id=%s ORDER BY e.created_at DESC LIMIT 80''', (thread,))).fetchall()
+            actions = await (await conn.execute('''SELECT action_id,kind,status,receipt,
+                created_at,updated_at FROM solovibe_v1.actions WHERE thread_id=%s
+                ORDER BY created_at DESC LIMIT 30''', (thread,))).fetchall()
+            feedback = await (await conn.execute('''SELECT feedback_id,plan_set_id,plan_id,
+                category,note,created_at FROM solovibe_v1.user_feedback WHERE thread_id=%s
+                ORDER BY created_at DESC LIMIT 30''', (thread,))).fetchall()
+        items = ([{'event_type': 'run', **row} for row in runs]
+                 + [{'event_type': 'node', **row} for row in events]
+                 + [{'event_type': 'action', **row} for row in actions]
+                 + [{'event_type': 'user_report', **row} for row in feedback])
+        return sorted(items, key=lambda item: item['created_at'], reverse=True)[:100]
+
+    async def submit_feedback(self, owner, thread, request_id, plan_set_id,
+                              plan_id, category, note):
+        async with self.pool.connection() as conn, conn.transaction():
+            conversation = await (await conn.execute('''SELECT thread_id FROM solovibe_v1.conversations
+                WHERE thread_id=%s AND owner_id=%s''', (thread, owner))).fetchone()
+            if not conversation:
+                raise AppError('NOT_FOUND', '会话不存在或不属于当前浏览器。', 404)
+            previous = await (await conn.execute('''SELECT * FROM solovibe_v1.user_feedback
+                WHERE thread_id=%s AND request_id=%s''', (thread, request_id))).fetchone()
+            if previous:
+                if any((str(previous['plan_set_id']) != plan_set_id,
+                        previous['plan_id'] != plan_id, previous['category'] != category,
+                        previous['note'] != note)):
+                    raise Conflict('REQUEST_ID_REUSED', '同一 request_id 不能用于不同反馈。')
+                return previous
+            plan_set = await (await conn.execute('''SELECT payload FROM solovibe_v1.plan_sets
+                WHERE run_id=%s AND thread_id=%s''', (plan_set_id, thread))).fetchone()
+            if not plan_set or not any(plan.get('plan_id') == plan_id
+                                       for plan in plan_set['payload'].get('plans', [])):
+                raise AppError('PLAN_NOT_FOUND', '反馈关联的方案不存在。', 404)
+            return await (await conn.execute('''INSERT INTO solovibe_v1.user_feedback
+                (feedback_id,thread_id,owner_id,plan_set_id,plan_id,request_id,category,note)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *''',
+                (str(uuid4()), thread, owner, plan_set_id, plan_id,
+                 request_id, category, note))).fetchone()

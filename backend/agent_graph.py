@@ -5,7 +5,8 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from domain.context import ContextSnapshot, make_reply, apply_patch
+from domain.context import ContextSnapshot, Understanding, make_reply, apply_patch
+from domain.errors import AppError
 from services.context_builder import ContextBuilder
 from services.planning import create_planner
 from services.actions import revalidate, navigation_receipt
@@ -23,7 +24,10 @@ class AgentState(TypedDict):
     run_id: str
     request_id: str
     input_event: dict
+    direct_patch: dict | None
+    recheck_poi_id: str | None
     context_snapshot: dict
+    base_snapshot: dict
     recent_messages: list[dict]
     rolling_summary: dict | None
     context_budget: dict
@@ -32,6 +36,7 @@ class AgentState(TypedDict):
     reply: dict
     evidence: dict
     vetted_places: list[dict]
+    change_set: list[str]
     output: dict
 
 
@@ -49,10 +54,14 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
             'action_evidence': {}, 'action_receipt': {},
             'schema_version': 1, 'request_id': str(run['request_id']),
             'input_event': {'message_id':str(run['message_id']), 'content':run['input_text']},
+            'direct_patch': run.get('input_patch'),
+            'recheck_poi_id': run.get('recheck_poi_id'),
             'context_snapshot':run['base_snapshot'], 'recent_messages':[],
+            'base_snapshot': run['base_snapshot'],
             'rolling_summary':None, 'context_budget':{},
             'understanding':{}, 'model_meta':{}, 'reply':{}, 'output':{},
             'evidence':{}, 'vetted_places':[],
+            'change_set': [],
         }
 
     async def prepare_context(state):
@@ -71,15 +80,21 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
                                    current_summary)
 
     async def understand_context(state):
-        proposal, meta = await model.understand(state['context_snapshot'],state['recent_messages'],
-                                                state['input_event']['content'],
-                                                rolling_summary=state['rolling_summary'],
-                                                max_input_tokens=state['context_budget']['input_limit'])
+        if state.get('direct_patch'):
+            proposal = Understanding.model_validate(state['direct_patch'])
+            meta = {'provider': 'deterministic', 'model': 'direct_adjustment',
+                    'actual_call': False, 'input_tokens': 0, 'output_tokens': 0}
+        else:
+            proposal, meta = await model.understand(state['context_snapshot'],state['recent_messages'],
+                                                    state['input_event']['content'],
+                                                    rolling_summary=state['rolling_summary'],
+                                                    max_input_tokens=state['context_budget']['input_limit'])
         meta['context_budget'] = state['context_budget']
         # Reject unsupported patches before checkpointing them so retry re-extracts.
         apply_patch(ContextSnapshot.model_validate(state['context_snapshot']),proposal,
                     state['input_event']['content'],state['input_event']['message_id'])
-        return {'understanding':proposal.model_dump(), 'model_meta':meta}
+        return {'understanding':proposal.model_dump(), 'model_meta':meta,
+                'change_set': [change.field for change in proposal.changes]}
 
     async def validate_and_commit_patch(state):
         snapshot = await repository.commit(state['run_id'],state['understanding'],state['model_meta'])
@@ -90,10 +105,41 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
         return 'collect_evidence' if kind == 'context_ready' else kind
 
     async def collect_evidence(state):
-        return {'evidence':await planning_service().collect(ContextSnapshot.model_validate(state['context_snapshot']))}
+        snapshot = ContextSnapshot.model_validate(state['context_snapshot'])
+        prior = await repository.prior_plan(state['run_id']) if hasattr(repository, 'prior_plan') else None
+        if state.get('recheck_poi_id'):
+            plan = next((item for item in (prior or {}).get('plans', [])
+                         if item.get('place', {}).get('poi_id') == state['recheck_poi_id']), None)
+            if not plan:
+                raise AppError('PLAN_STALE', '所选门店不在当前方案组，请刷新后重试。', 409)
+            evidence = await planning_service().collect_one(snapshot, plan)
+            evidence['dependency_trace'] = {'changed_fields': [],
+                'retrieval': 'targeted_recheck', 'parent_plan_set_id': prior['plan_set_id']}
+            return {'evidence': evidence}
+        mode = (planning_service().reuse_mode(
+            ContextSnapshot.model_validate(state['base_snapshot']), snapshot,
+            prior, state.get('change_set', []))
+            if prior and hasattr(planning_service(), 'reuse_mode') else None)
+        if mode:
+            evidence = await planning_service().collect_reused(snapshot, prior, mode)
+            if evidence['status'] == 'ok':
+                evidence['dependency_trace'] = {'changed_fields': state.get('change_set', []),
+                    'retrieval': mode, 'parent_plan_set_id': prior['plan_set_id']}
+                return {'evidence': evidence}
+        evidence = await planning_service().collect(snapshot)
+        evidence['dependency_trace'] = {'changed_fields': state.get('change_set', []),
+            'retrieval': 'fresh', 'parent_plan_set_id': prior['plan_set_id'] if prior else None}
+        return {'evidence': evidence}
 
     async def verify_feasibility(state):
-        return {'vetted_places':planning_service().verify(ContextSnapshot.model_validate(state['context_snapshot']),state['evidence'])}
+        snapshot = ContextSnapshot.model_validate(state['context_snapshot'])
+        vetted = planning_service().verify(snapshot, state['evidence'])
+        if state['evidence'].get('reuse_mode') and len(vetted) < 2:
+            fresh = await planning_service().collect(snapshot)
+            fresh['dependency_trace'] = {**state['evidence']['dependency_trace'],
+                                         'retrieval': 'fresh_after_reuse_shortfall'}
+            return {'evidence': fresh, 'vetted_places': planning_service().verify(snapshot, fresh)}
+        return {'vetted_places': vetted}
 
     async def enrich_sources(state):
         snapshot = ContextSnapshot.model_validate(state['context_snapshot'])
@@ -101,8 +147,11 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
                                                                  snapshot.constraints.budget_cny)}
 
     async def publish_plans(state):
-        return {'reply':planning_service().publish(ContextSnapshot.model_validate(state['context_snapshot']),
-                                        state['vetted_places'],state['evidence'])}
+        reply = planning_service().publish(ContextSnapshot.model_validate(state['context_snapshot']),
+                                            state['vetted_places'], state['evidence'],
+                                            plan_set_id=state['run_id'])
+        reply['replanning'] = state['evidence'].get('dependency_trace', {})
+        return {'reply': reply}
 
     async def publish(state):
         return {'reply':make_reply(ContextSnapshot.model_validate(state['context_snapshot']),state['understanding']['intent'])}

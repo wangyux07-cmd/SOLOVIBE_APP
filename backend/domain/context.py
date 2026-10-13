@@ -117,6 +117,34 @@ def apply_patch(snapshot: ContextSnapshot, proposal: Understanding, message: str
     )
 
 
+DIRECT_EDIT_LABELS = {
+    'city': '城市', 'location_text': '出发位置', 'return_location_text': '返程终点',
+    'desired_dwell_minutes': '计划停留分钟数', 'budget_cny': '预算元数',
+    'available_minutes': '可用分钟数', 'max_walk_minutes': '步行分钟上限',
+    'interests': '偏好', 'exclusions': '避开',
+}
+
+
+def direct_adjustment(snapshot: ContextSnapshot, field: str, value: Any):
+    """Build a traceable, deterministic patch from an explicit form submission."""
+    if field not in DIRECT_EDIT_LABELS:
+        raise AppError('INVALID_ADJUSTMENT', '这个条件不能通过直接编辑修改。', 422)
+    if isinstance(value, list):
+        rendered = '、'.join(value)
+    elif value is None:
+        rendered = '取消限制'
+    else:
+        rendered = str(value)
+    quote = f'{DIRECT_EDIT_LABELS[field]}改为{rendered}'
+    message = f'请把{quote}。'
+    proposal = Understanding(intent='planning', changes=[FieldChange(
+        field=field, value=value, quote=quote, basis='explicit')])
+    updated = apply_patch(snapshot, proposal, message, 'direct-adjustment-validation')
+    if updated.constraints.model_dump()[field] == snapshot.constraints.model_dump()[field]:
+        raise AppError('NO_CHANGE', '新值与当前条件相同。', 422)
+    return message, proposal
+
+
 def missing_fields(snapshot: ContextSnapshot) -> list[str]:
     c = snapshot.constraints
     return [name for name in ("city", "location_text", "budget_cny", "available_minutes") if getattr(c, name) is None]

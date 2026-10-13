@@ -13,7 +13,7 @@ type PublicOffer = { claim_id: string; description: string; price_cny: number; t
 type PublicInfo = { status: string; sources: { url: string; observed_at: string; scope: string; source_domain: string; extract_status: string; field_scope: string }[]; brand_menu_items: PublicItem[]; branch_menu_items: PublicItem[]; admission_prices: { description: string; price_cny: number; source_url: string; observed_at: string; scope: string }[]; offers?: PublicOffer[] };
 type LiveInfo = { status: 'verified'; source_kind: 'merchant_direct'; source_url: string; branch_id: string; amap_poi_id: string; observed_at: string; valid_until: string; open_now?: boolean; availability?: 'available' | 'limited' | 'unavailable' };
 type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: WalkRoute; return_route?: WalkRoute | null; time_breakdown?: { outbound_minutes: number; dwell_minutes: number | null; return_minutes: number | null; buffer_minutes: number; total_minutes: number | null; dwell_source: string }; feasibility_checks?: { full_activity_time: string; budget?: string; open_now?: string }; budget_option?: string; hours_evidence?: { kind: string; recorded_today_hours: string | null; inference: string; open_now: string; observed_at: string | null }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; recorded_today_hours?: string | null; specialty_tags?: string[]; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; snippet?: string; identity_status: string }[]; public_info?: PublicInfo | null; live_info?: LiveInfo | null; live_recheck_required?: boolean };
-type PlanSet = { plan_set_id?: string; kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[] };
+type PlanSet = { plan_set_id?: string; kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[]; replanning?: { changed_fields: string[]; retrieval: string; parent_plan_set_id: string | null } };
 type Action = { action_id: string; plan_id: string; kind: 'save' | 'navigate'; proposal_version: number; proposal_digest: string;
   plan_snapshot: Plan; status: string; receipt: { kind?: string; url?: string; reason?: string; place_name?: string; note?: string } | null; expires_at: string; handoff_requested_at?: string | null };
 type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]; pending_run: Pending;
@@ -23,6 +23,8 @@ type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]
   context_memory: { summary_revision: number; covered_until_sequence: number; raw_messages_retained: boolean } };
 type ChatResult = { response: string; kind: string; run_id: string; snapshot: Snapshot; model: { provider: string; model: string; input_tokens: number | null; output_tokens: number | null; actual_call: boolean } };
 type TraceEvent = { node: string; status: string; elapsed_ms: number };
+type TimelineEvent = { event_type: 'run' | 'node' | 'action' | 'user_report'; created_at: string; status?: string; node?: string; kind?: string; category?: string; note?: string; error_code?: string };
+type EditField = 'budget_cny' | 'available_minutes' | 'max_walk_minutes' | 'desired_dwell_minutes' | 'interests' | 'exclusions' | 'location_text' | 'city';
 
 const labels: Record<string, string> = {
   city: '城市', location_text: '所在位置', return_location_text: '返程终点（未填则回出发点）', desired_dwell_minutes: '计划停留（分钟）', budget_cny: '预算（元）', available_minutes: '可用时间（分钟）',
@@ -54,12 +56,18 @@ export default function StageOneApp() {
   const [error, setError] = useState('');
   const [last, setLast] = useState<ChatResult | null>(null);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [action, setAction] = useState<Action | null>(null);
   const [returnText, setReturnText] = useState('');
   const [dwellText, setDwellText] = useState('');
   const [locationNotice, setLocationNotice] = useState('');
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [invalidLivePlanIds, setInvalidLivePlanIds] = useState<string[]>([]);
+  const [editField, setEditField] = useState<EditField>('budget_cny');
+  const [editValue, setEditValue] = useState('');
+  const [feedbackPlanId, setFeedbackPlanId] = useState('');
+  const [feedbackCategory, setFeedbackCategory] = useState('considered');
+  const [feedbackNote, setFeedbackNote] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -69,6 +77,8 @@ export default function StageOneApp() {
       bootstrapPromise ??= bootstrap().catch(cause => { bootstrapPromise = null; throw cause; });
       const current = await bootstrapPromise;
       setConversation(current); setAction(current.latest_action ?? null);
+      const history = await request<{ events: TimelineEvent[] }>(`/api/conversations/${current.thread_id}/timeline`).catch(() => ({ events: [] as TimelineEvent[] }));
+      setTimeline(history.events);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '服务暂时不可用。');
     }
@@ -82,6 +92,8 @@ export default function StageOneApp() {
     if (!conversation) return;
     const current = await request<Conversation>(`/api/conversations/${conversation.thread_id}`);
     setConversation(current); setAction(current.latest_action ?? null);
+    const history = await request<{ events: TimelineEvent[] }>(`/api/conversations/${current.thread_id}/timeline`).catch(() => ({ events: [] as TimelineEvent[] }));
+    setTimeline(history.events);
   }
 
   async function loadTrace(thread: string, run: string) {
@@ -141,6 +153,62 @@ export default function StageOneApp() {
     const destination = returnText.trim();
     if (destination.length > 180) { setError('返程终点文字太长。'); return; }
     void send(`${destination ? `返程终点是${destination}` : '返程回到原出发点'}，计划停留${dwell}分钟。`);
+  }
+
+  async function submitAdjustment() {
+    if (!conversation || busy || conversation.pending_run) return;
+    let value: string | number | string[] = editValue.trim();
+    if (['budget_cny', 'available_minutes', 'max_walk_minutes', 'desired_dwell_minutes'].includes(editField)) {
+      value = Number(editValue);
+      if (!Number.isFinite(value) || !editValue.trim() ||
+          (editField !== 'budget_cny' && !Number.isInteger(value))) {
+        setError('请输入有效数字；时间和步行分钟数必须是整数。'); return;
+      }
+    } else if (editField === 'interests' || editField === 'exclusions') {
+      value = editValue.split(/[,，、]/).map(item => item.trim()).filter(Boolean);
+    } else if (!value) { setError('请输入新的位置或城市。'); return; }
+    setBusy(true); setError('');
+    try {
+      const result = await request<ChatResult>(`/api/conversations/${conversation.thread_id}/adjustments`, {
+        ...post, body: JSON.stringify({ request_id: crypto.randomUUID(), expected_revision: conversation.snapshot.revision,
+          field: editField, value }),
+      });
+      setLast(result); setEditValue(''); setInvalidLivePlanIds([]);
+      await reload(); await loadTrace(conversation.thread_id, result.run_id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '条件修改失败。');
+      await reload().catch(() => undefined);
+    } finally { setBusy(false); }
+  }
+
+  async function submitFeedback() {
+    if (!conversation?.plan_set?.plan_set_id || !feedbackPlanId || !feedbackNote.trim() || busy) return;
+    setBusy(true); setError('');
+    try {
+      await request(`/api/conversations/${conversation.thread_id}/feedback`, {
+        ...post, body: JSON.stringify({ request_id: crypto.randomUUID(),
+          plan_set_id: conversation.plan_set.plan_set_id, plan_id: feedbackPlanId,
+          category: feedbackCategory, note: feedbackNote.trim() }),
+      });
+      setFeedbackNote(''); await reload();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '反馈记录失败。'); }
+    finally { setBusy(false); }
+  }
+
+  async function recheckPlace(plan: Plan) {
+    if (!conversation?.plan_set?.plan_set_id || busy || conversation.pending_run) return;
+    setBusy(true); setError('');
+    try {
+      const result = await request<ChatResult>(`/api/conversations/${conversation.thread_id}/recheck`, {
+        ...post, body: JSON.stringify({ request_id: crypto.randomUUID(),
+          expected_revision: conversation.snapshot.revision,
+          plan_set_id: conversation.plan_set.plan_set_id, poi_id: plan.place.poi_id }),
+      });
+      setLast(result); setInvalidLivePlanIds([]);
+      await reload(); await loadTrace(conversation.thread_id, result.run_id);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '门店重查失败。');
+      await reload().catch(() => undefined); }
+    finally { setBusy(false); }
   }
 
   async function retry() {
@@ -220,7 +288,7 @@ export default function StageOneApp() {
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">V3-4 · 授权商家数据</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">V3-5 · 条件调整与恢复</span>
       </header>
 
       <section className="py-9">
@@ -243,12 +311,20 @@ export default function StageOneApp() {
             {locationNotice && <p className="mt-2 text-xs text-[#bdd7a2]">{locationNotice}</p>}
             <div className="mt-4 flex flex-wrap gap-2"><input aria-label="返程终点" value={returnText} onChange={event => setReturnText(event.target.value)} placeholder="返程终点，留空回出发点" className="min-w-0 flex-1 rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs" /><input aria-label="计划停留分钟" type="number" min="1" max="720" value={dwellText} onChange={event => setDwellText(event.target.value)} placeholder="停留分钟" className="w-28 rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs" /><button type="button" disabled={!conversation || busy || !!conversation.pending_run} onClick={tripMessage} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-40">更新返程与停留</button></div>
           </div>
+          <div className="mt-4 rounded-xl border border-white/10 p-4 text-sm" aria-label="直接修改条件">
+            <p className="font-medium">直接修改条件</p>
+            <p className="mt-1 text-xs text-[#a8b6ac]">修改会生成新的方案组；旧方案仍可查看，但不能按旧条件确认。</p>
+            <div className="mt-3 flex flex-wrap gap-2"><select aria-label="要修改的条件" value={editField} onChange={event => { setEditField(event.target.value as EditField); setEditValue(''); }} className="rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs">
+              {(['budget_cny','available_minutes','max_walk_minutes','desired_dwell_minutes','interests','exclusions','location_text','city'] as EditField[]).map(field => <option key={field} value={field}>{labels[field]}</option>)}
+            </select><input aria-label="条件新值" value={editValue} onChange={event => setEditValue(event.target.value)} placeholder={editField === 'interests' || editField === 'exclusions' ? '用逗号分隔' : '输入新值'} className="min-w-0 flex-1 rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs" /><button type="button" onClick={() => void submitAdjustment()} disabled={!conversation || busy || !!conversation.pending_run || !editValue.trim()} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">重新规划</button></div>
+          </div>
           {error && <p role="alert" className="mt-4 text-sm text-orange-200">{error}</p>}
         </section>
 
         <aside className="space-y-5">
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">已确认的情境</h2><p className="mt-2 text-xs text-[#a8b6ac]">数据库中的结构化状态 · 版本 {conversation?.snapshot.revision ?? '—'}</p>{!!conversation?.context_memory.summary_revision && <p className="mt-2 text-xs text-[#a8b6ac]">较早对话已整理 · 原文仍保留</p>}<dl className="mt-4 space-y-3">{Object.entries(labels).map(([field,label]) => { const value = conversation?.snapshot.constraints[field]; const source = conversation?.snapshot.sources[field]; return <div key={field} className="border-t border-white/10 pt-3"><dt className="text-xs text-[#a8b6ac]">{label}</dt><dd className="mt-1 text-sm">{value === null || value === undefined || (Array.isArray(value) && !value.length) ? '未提供' : Array.isArray(value) ? value.join('、') : String(value)}</dd>{source && <p className="mt-1 text-xs text-[#92a48e]">依据：“{source.quote}” · {source.basis === 'explicit' ? '用户表达' : '推断'}</p>}</div>; })}</dl></section>
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">运行记录</h2>{last && <p className="mt-3 text-xs leading-6 text-[#a8b6ac]">{last.model.provider} / {last.model.model} · 输入 {last.model.input_tokens ?? '未知'} tokens · 输出 {last.model.output_tokens ?? '未知'} tokens · {last.kind}</p>}{trace.length ? <ol className="mt-4 space-y-2">{trace.map((event,index) => <li key={`${index}-${event.node}`} className="flex justify-between gap-2 border-t border-white/10 pt-2 text-xs"><span>{event.node}</span><span className={event.status === 'completed' ? 'text-[#bdd7a2]' : 'text-orange-200'}>{event.status} · {event.elapsed_ms} ms</span></li>)}</ol> : <p className="mt-4 text-sm text-[#a8b6ac]">完成一次真实请求后显示节点执行记录。</p>}</section>
+          <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">事实时间线</h2><p className="mt-1 text-xs text-[#a8b6ac]">只记录服务端事件；体验反馈标为用户自述。</p><ol className="mt-3 space-y-2">{timeline.slice(0, 12).map((event,index) => <li key={`${event.event_type}-${event.created_at}-${index}`} className="border-t border-white/10 pt-2 text-xs text-[#a8b6ac]">{new Date(event.created_at).toLocaleString()} · {event.event_type === 'user_report' ? `用户自述：${event.note}` : event.event_type === 'node' ? `节点 ${event.node}：${event.status}` : event.event_type === 'action' ? `${event.kind === 'save' ? '保存' : '导航'}动作：${event.status}` : `运行：${event.status}${event.error_code ? `（${event.error_code}）` : ''}`}</li>)}</ol></section>
         </aside>
       </div>
       {action && <section className="mt-6 rounded-2xl border border-[#bdd7a2]/30 bg-[#19231d] p-5 md:p-7" aria-label="行动确认">
@@ -275,6 +351,7 @@ export default function StageOneApp() {
       </section>}
       {conversation?.plan_set?.plans.length ? <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7" aria-label="真实地点方案">
         <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-medium">可考虑的地点</h2><p className="text-xs text-[#a8b6ac]">依据当前条件版本 {conversation.snapshot.revision} · 路线来自高德；完整时长取决于你计划的停留时间</p></div>
+        {conversation.plan_set.replanning && <p className="mt-2 text-xs text-[#a8b6ac]">本次变化：{conversation.plan_set.replanning.changed_fields.map(field => labels[field] ?? field).join('、') || '重查'} · 证据处理：{({ fresh: '重新查询', facts_and_routes: '复用未过期地点、路线和来源', return_route: '只重查返程路线', fresh_after_reuse_shortfall: '复用结果不足，重新查询', targeted_recheck: '只重查所选地点' } as Record<string,string>)[conversation.plan_set.replanning.retrieval] ?? conversation.plan_set.replanning.retrieval}</p>}
         <div className="mt-5 grid gap-4 md:grid-cols-3">{conversation.plan_set.plans.map(plan => <article key={plan.plan_id} className="rounded-xl border border-white/10 bg-[#19231d] p-5">
           <p className="text-xs text-[#bdd7a2]">{plan.place.category || '地点'} · 高德 POI {plan.place.poi_id}</p>
           <h3 className="mt-2 text-lg font-medium">{plan.place.name}</h3>
@@ -299,12 +376,17 @@ export default function StageOneApp() {
           <a className="mt-4 inline-block text-sm text-[#bdd7a2] underline" href={plan.place.source_url} target="_blank" rel="noopener noreferrer">在高德查看地点</a>
           {hasExpiredOffer(plan.public_info, nowMs) && <p className="mt-2 text-xs text-orange-100">套餐证据已过期，请重新生成方案后再确认。</p>}
           {(hasExpiredLive(plan.live_info, nowMs) || plan.live_recheck_required || invalidLivePlanIds.includes(plan.plan_id)) && <p className="mt-2 text-xs text-orange-100">商家实时状态已过期或复查失败，不再显示旧状态；请重新生成方案。</p>}
-          {conversation.plan_set?.plan_set_id && <div className="mt-4 flex gap-2"><button type="button" disabled={busy || hasExpiredOffer(plan.public_info, nowMs) || hasExpiredLive(plan.live_info, nowMs) || plan.live_recheck_required || invalidLivePlanIds.includes(plan.plan_id) || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'save')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存此方案</button><button type="button" disabled={busy || hasExpiredOffer(plan.public_info, nowMs) || hasExpiredLive(plan.live_info, nowMs) || plan.live_recheck_required || invalidLivePlanIds.includes(plan.plan_id) || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'navigate')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">准备步行导航</button></div>}
+          {conversation.plan_set?.plan_set_id && <div className="mt-4 flex flex-wrap gap-2"><button type="button" disabled={busy || hasExpiredOffer(plan.public_info, nowMs) || hasExpiredLive(plan.live_info, nowMs) || plan.live_recheck_required || invalidLivePlanIds.includes(plan.plan_id) || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'save')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存此方案</button><button type="button" disabled={busy || hasExpiredOffer(plan.public_info, nowMs) || hasExpiredLive(plan.live_info, nowMs) || plan.live_recheck_required || invalidLivePlanIds.includes(plan.plan_id) || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'navigate')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">准备步行导航</button><button type="button" disabled={busy || !!conversation.pending_run} onClick={() => void recheckPlace(plan)} className="rounded-lg border border-white/20 px-3 py-2 text-xs disabled:opacity-40">重查该店</button></div>}
           {plan.web_sources.length > 0 && <div className="mt-4 border-t border-white/10 pt-3"><p className="text-xs text-[#a8b6ac]">网页线索 · 提及地点名称，尚未核实是否同一分店；内容不作为套餐或营业承诺</p><ul className="mt-2 space-y-2">{plan.web_sources.filter(source => source.url.startsWith('https://')).map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#bdd7a2] underline">{source.title || source.url}</a>{source.snippet && <p className="mt-1 line-clamp-3 text-xs text-[#a8b6ac]">{source.snippet}</p>}</li>)}</ul></div>}
           {plan.web_status !== 'results_unverified' && <p className="mt-3 text-xs text-[#a8b6ac]">网页资料：{plan.web_status === 'not_configured' ? '未配置搜索服务' : '本次未取得可展示结果'}</p>}
         </article>)}</div>
       </section> : null}
-      <footer className="mt-10 text-xs text-[#84938a]">V3-4 开发预览 · 授权商家状态仅在来源和时效有效时显示，不能保证到店有位或完成预约。出发前请核实。</footer>
+      {!!conversation?.plan_set?.plans.length && <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7" aria-label="用户体验反馈">
+        <h2 className="text-lg font-medium">记录自己的体验</h2><p className="mt-2 text-xs text-[#a8b6ac]">以下只记录你的自述，不代表系统核实了到店、消费或预约结果。</p>
+        <div className="mt-4 flex flex-wrap gap-2"><select aria-label="反馈对应方案" value={feedbackPlanId} onChange={event => setFeedbackPlanId(event.target.value)} className="rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs"><option value="">选择地点</option>{conversation.plan_set.plans.map(plan => <option key={plan.plan_id} value={plan.plan_id}>{plan.place.name}</option>)}</select><select aria-label="反馈类型" value={feedbackCategory} onChange={event => setFeedbackCategory(event.target.value)} className="rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs"><option value="considered">考虑过</option><option value="went">我说我去了</option><option value="did_not_go">我说我没去</option><option value="other">其他</option></select></div>
+        <textarea aria-label="反馈内容" maxLength={500} rows={2} value={feedbackNote} onChange={event => setFeedbackNote(event.target.value)} className="mt-3 w-full rounded-lg border border-white/15 bg-[#19231d] p-3 text-sm" placeholder="写下你的感受或结果（最多 500 字）" /><button type="button" disabled={busy || !feedbackPlanId || !feedbackNote.trim()} onClick={() => void submitFeedback()} className="mt-2 rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存自述反馈</button>
+      </section>}
+      <footer className="mt-10 text-xs text-[#84938a]">V3-5 开发预览 · 条件修改会产生新方案；反馈为用户自述。商家状态和来源资料可能变化，出发前请核实。</footer>
     </div>
   </main>;
 }

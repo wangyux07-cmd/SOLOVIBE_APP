@@ -1,5 +1,6 @@
 """Stage 1 HTTP boundary. Every accepted chat request runs the compiled graph."""
 from contextlib import asynccontextmanager
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import FastAPI, Request, Response
@@ -14,8 +15,8 @@ from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.10.0'
-STAGE = 'v3-4'
+VERSION = '0.11.0'
+STAGE = 'v3-5'
 COOKIE = 'solovibe_session'
 
 
@@ -63,6 +64,40 @@ class BrowserOriginRequest(BaseModel):
     longitude: float = Field(ge=73, le=135, allow_inf_nan=False)
     latitude: float = Field(ge=18, le=54, allow_inf_nan=False)
     accuracy_m: float = Field(ge=0, le=300, allow_inf_nan=False)
+
+
+class AdjustmentRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+    expected_revision: int = Field(ge=0)
+    field: Literal['city', 'location_text', 'return_location_text',
+                   'desired_dwell_minutes', 'budget_cny', 'available_minutes',
+                   'max_walk_minutes', 'interests', 'exclusions']
+    value: Any
+
+
+class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+    plan_set_id: UUID
+    plan_id: str = Field(min_length=1, max_length=180)
+    category: Literal['considered', 'went', 'did_not_go', 'other']
+    note: str = Field(min_length=1, max_length=500)
+
+    @field_validator('note')
+    @classmethod
+    def note_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError('note must not be blank')
+        return value.strip()
+
+
+class RecheckRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+    expected_revision: int = Field(ge=0)
+    plan_set_id: UUID
+    poi_id: str = Field(min_length=1, max_length=80)
 
 
 def create_app():
@@ -196,9 +231,41 @@ def create_app():
     async def chat(body:ChatRequest,request:Request):
         return await runtime.chat(await owner(request),str(body.thread_id),str(body.request_id),body.message,body.expected_revision)
 
+    @app.post('/api/conversations/{thread_id}/adjustments')
+    async def adjust(thread_id:UUID, body:AdjustmentRequest, request:Request):
+        return await runtime.adjust(await owner(request), str(thread_id),
+                                    str(body.request_id), body.field, body.value,
+                                    body.expected_revision)
+
+    @app.post('/api/conversations/{thread_id}/recheck')
+    async def recheck(thread_id:UUID, body:RecheckRequest, request:Request):
+        return await runtime.recheck_place(await owner(request), str(thread_id),
+            str(body.request_id), str(body.plan_set_id), body.poi_id,
+            body.expected_revision)
+
     @app.post('/api/conversations/{thread_id}/runs/{run_id}/retry')
     async def retry(thread_id:UUID,run_id:UUID,request:Request):
         return await runtime.retry(await owner(request),str(thread_id),str(run_id))
+
+    @app.get('/api/conversations/{thread_id}/runs/{run_id}')
+    async def run_status(thread_id:UUID,run_id:UUID,request:Request):
+        return await runtime.repo.run_status(await owner(request),str(thread_id),run_id=str(run_id))
+
+    @app.get('/api/conversations/{thread_id}/requests/{request_id}')
+    async def request_status(thread_id:UUID,request_id:UUID,request:Request):
+        return await runtime.repo.run_status(await owner(request),str(thread_id),request_id=str(request_id))
+
+    @app.get('/api/conversations/{thread_id}/timeline')
+    async def timeline(thread_id:UUID,request:Request):
+        return {'events':await runtime.repo.timeline(await owner(request),str(thread_id))}
+
+    @app.post('/api/conversations/{thread_id}/feedback')
+    async def feedback(thread_id:UUID,body:FeedbackRequest,request:Request):
+        row = await runtime.repo.submit_feedback(await owner(request),str(thread_id),
+            str(body.request_id),str(body.plan_set_id),body.plan_id,body.category,body.note)
+        return {'feedback_id':str(row['feedback_id']), 'plan_id':row['plan_id'],
+                'category':row['category'], 'note':row['note'],
+                'source_kind':'user_report', 'created_at':row['created_at']}
 
     @app.get('/api/conversations/{thread_id}/runs/{run_id}/trace')
     async def trace(thread_id:UUID,run_id:UUID,request:Request):

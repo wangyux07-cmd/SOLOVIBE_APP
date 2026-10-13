@@ -206,7 +206,7 @@ async def test_complete_langgraph_enters_planning_branch_and_persists_options():
         async def collect(self, current): return {'status':'empty','places':[],'origin':None,'errors':[]}
         def verify(self, current, evidence): return []
         async def enrich(self, city, places, budget_cny=None): return places
-        def publish(self, current, places, evidence):
+        def publish(self, current, places, evidence, plan_set_id=None):
             return {'kind':'no_options','response':'没有取得真实地点。','plans':[]}
     repo = Repo()
     graph = build_graph(repo,Model(),planner=FakePlanner())

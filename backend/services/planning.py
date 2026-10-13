@@ -7,13 +7,24 @@ import asyncio
 import math
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import httpx
 
 from domain.context import ContextSnapshot
 from services.offer_policy import SHANGHAI_TZ
+
+
+def evidence_fresh(value, minutes=30, future=False):
+    try:
+        stamp = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except (AttributeError, TypeError, ValueError):
+        return False
+    if stamp.tzinfo is None:
+        return False
+    now = datetime.now(timezone.utc)
+    return stamp > now if future else -timedelta(minutes=1) <= now - stamp <= timedelta(minutes=minutes)
 
 
 def schedule_evidence(facts, now=None):
@@ -342,6 +353,114 @@ class Planner:
         self.maps, self.web = maps, web
         self.public, self.evidence_store, self.merchant_live = public, evidence_store, merchant_live
 
+    @staticmethod
+    def reuse_mode(before: ContextSnapshot, after: ContextSnapshot, prior: dict,
+                   changed_fields: list[str]):
+        """Conservative dependency boundary for a previous immutable plan set."""
+        fields = set(changed_fields)
+        if fields - {'budget_cny', 'available_minutes', 'max_walk_minutes',
+                     'desired_dwell_minutes', 'return_location_text', 'energy'}:
+            return None
+        old, new = before.constraints, after.constraints
+        if any(getattr(old, name) != getattr(new, name) for name in
+               ('city', 'location_text', 'origin_coordinate', 'origin_observed_at',
+                'interests', 'exclusions')):
+            return None
+        if (old.origin_source == 'browser_gps' and old.origin_observed_at
+                and not evidence_fresh(old.origin_observed_at, minutes=30)):
+            return None
+        for name in ('available_minutes', 'max_walk_minutes'):
+            previous, current = getattr(old, name), getattr(new, name)
+            if previous is not None and (current is None or current > previous):
+                return None  # A wider search can introduce unseen candidates.
+        plans = prior.get('plans') or []
+        if not plans:
+            return None
+        return_changed = old.return_location_text != new.return_location_text
+        for plan in plans:
+            if (not evidence_fresh(plan.get('place', {}).get('observed_at'), minutes=30)
+                    or not evidence_fresh(plan.get('route', {}).get('observed_at'), minutes=30)
+                    or not plan.get('origin') or not plan.get('facts')
+                    or not evidence_fresh(plan['facts'].get('observed_at'), minutes=30)):
+                return None
+            if not return_changed and (not plan.get('return_route') or not
+                                       evidence_fresh(plan['return_route'].get('observed_at'), minutes=30)):
+                return None
+            public = plan.get('public_info') or {}
+            if any(not evidence_fresh(item.get('observed_at'), minutes=30)
+                   for item in public.get('sources', [])):
+                return None
+            if any(not evidence_fresh(item.get('valid_until'), minutes=0, future=True)
+                   for item in public.get('offers', [])):
+                return None
+        return 'return_route' if return_changed else 'facts_and_routes'
+
+    async def collect_reused(self, snapshot: ContextSnapshot, prior: dict, mode: str):
+        plans = prior['plans']
+        origin = plans[0]['origin']
+        return_destination = plans[0].get('return_destination')
+        errors = []
+        if mode == 'return_route':
+            if snapshot.constraints.return_location_text:
+                try:
+                    return_destination = await self.maps.geocode(
+                        snapshot.constraints.city, snapshot.constraints.return_location_text)
+                except ProviderFailure as exc:
+                    return {'status': exc.category, 'places': [], 'origin': origin,
+                            'return_destination': None, 'errors': [exc.category]}
+            else:
+                return_destination = origin
+        places = []
+        for plan in plans:
+            place = {**plan['place'], 'route': plan['route'],
+                     'facts': plan['facts'], 'detail_status': plan.get('detail_status'),
+                     'web_status': plan.get('web_status', 'empty'),
+                     'web_sources': plan.get('web_sources', []),
+                     'public_info': plan.get('public_info'), '_reuse_sources': True}
+            if mode == 'return_route':
+                try:
+                    place['return_route'] = await self.maps.walking(
+                        place['coordinate'], return_destination['coordinate'],
+                        origin_id=place['poi_id'], geometry=True)
+                except ProviderFailure as exc:
+                    place['return_route_error'] = exc.category
+                    errors.append(exc.category)
+            else:
+                place['return_route'] = plan['return_route']
+            places.append(place)
+        return {'status': 'ok' if any(place.get('return_route') for place in places)
+                else 'route_unavailable', 'origin': origin,
+                'return_destination': return_destination, 'places': places,
+                'errors': errors, 'reuse_mode': mode,
+                'parent_plan_set_id': prior['plan_set_id']}
+
+    async def collect_one(self, snapshot: ContextSnapshot, plan: dict):
+        """Refresh one exact POI without a nearby-place search."""
+        c = snapshot.constraints
+        try:
+            if c.origin_source == 'browser_gps' and c.origin_coordinate:
+                if not evidence_fresh(c.origin_observed_at, minutes=30):
+                    raise ProviderFailure('location_stale')
+                origin = {'coordinate': c.origin_coordinate, 'address': c.location_text,
+                          'source': 'browser_gps', 'observed_at': c.origin_observed_at}
+            else:
+                origin = await self.maps.geocode(c.city, c.location_text)
+                origin['source'] = 'manual_text'
+            destination = (await self.maps.geocode(c.city, c.return_location_text)
+                           if c.return_location_text else origin)
+            place = {**plan['place'], '_targeted_recheck': True}
+            place['route'] = await self.maps.walking(origin['coordinate'],
+                                                     place['coordinate'], place['poi_id'],
+                                                     geometry=True)
+            place['return_route'] = await self.maps.walking(
+                place['coordinate'], destination['coordinate'], origin_id=place['poi_id'],
+                geometry=True)
+        except ProviderFailure as exc:
+            return {'status': exc.category, 'places': [], 'origin': None,
+                    'return_destination': None, 'errors': [exc.category]}
+        return {'status': 'ok', 'places': [place], 'origin': origin,
+                'return_destination': destination, 'errors': []}
+
     async def collect(self, snapshot: ContextSnapshot):
         c = snapshot.constraints
         if not self.maps.key:
@@ -469,20 +588,28 @@ class Planner:
     async def enrich(self, city, selected, budget_cny=None):
         detail_limit = asyncio.Semaphore(3)
         async def detail_one(place):
+            if place.get('_reuse_sources'):
+                return
             async with detail_limit:
                 try:
                     place['facts'] = await self.maps.detail(place)
                     place['detail_status'] = 'matched'
+                    if place.get('_targeted_recheck'):
+                        place['observed_at'] = place['facts']['observed_at']
                 except ProviderFailure as exc:
                     place['facts'], place['detail_status'] = None, exc.category
         await asyncio.gather(*(detail_one(place) for place in selected))
-        selected = [place for place in selected if place['detail_status'] != 'identity_conflict']
+        selected = [place for place in selected if place['detail_status'] != 'identity_conflict'
+                    and (not place.get('_targeted_recheck') or place['detail_status'] == 'matched')]
         if not self.web or not self.web.key:
             for place in selected:
-                place['web_status'], place['web_sources'] = 'not_configured', []
+                if not place.get('_reuse_sources'):
+                    place['web_status'], place['web_sources'] = 'not_configured', []
         else:
             semaphore = asyncio.Semaphore(2)
             async def one(place):
+                if place.get('_reuse_sources'):
+                    return
                 async with semaphore:
                     try:
                         place['web_sources'] = await self.web.search(city, place)
@@ -492,6 +619,8 @@ class Planner:
             await asyncio.gather(*(one(place) for place in selected))
         extraction_cache = {}
         for place in selected:
+            if place.get('_reuse_sources'):
+                continue
             place['public_info'] = {'status': 'no_official_source', 'sources': [],
                                     'brand_menu_items': [], 'branch_menu_items': [],
                                     'admission_prices': [], 'offers': []}
@@ -525,6 +654,18 @@ class Planner:
                 place['public_info']['offers'] = offers
             except Exception:
                 place['public_info']['status'] = 'pipeline_unavailable'
+        for place in selected:
+            information = place.get('public_info') or {}
+            offers = []
+            for offer in information.get('offers', []):
+                if not evidence_fresh(offer.get('valid_until'), minutes=0, future=True):
+                    continue
+                offer = dict(offer)
+                offer['budget_option'] = ('within_limit' if budget_cny is not None
+                                          and offer['price_cny'] <= budget_cny else
+                                          'over_limit' if budget_cny is not None else 'unknown')
+                offers.append(offer)
+            place['public_info'] = {**information, 'offers': offers}
         if self.merchant_live:
             async def live_one(place):
                 place['live_info'] = None
@@ -544,7 +685,7 @@ class Planner:
                 2 if place['public_info']['offers'] else 1))
         return selected
 
-    def publish(self, snapshot: ContextSnapshot, selected, evidence):
+    def publish(self, snapshot: ContextSnapshot, selected, evidence, plan_set_id=None):
         plans = []
         for place in selected:
             route = place['route']
@@ -576,7 +717,8 @@ class Planner:
             budget_option = ('known_offer_within_limit' if within_offer else
                              'known_offer_over_limit' if offers and snapshot.constraints.budget_cny is not None
                              else 'unknown')
-            plans.append({'plan_id': f'amap:{place["poi_id"]}', 'context_revision': snapshot.revision,
+            plans.append({'plan_id': f'amap:{place["poi_id"]}:set:{plan_set_id}' if plan_set_id
+                          else f'amap:{place["poi_id"]}', 'context_revision': snapshot.revision,
                           'evidence_contract_version': 1,
                           'place': {key: place[key] for key in ('provider', 'poi_id', 'name', 'address', 'city', 'coordinate', 'category', 'source_url', 'observed_at')},
                           'route': route, 'return_route': return_route,
