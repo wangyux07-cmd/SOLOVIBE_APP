@@ -1,8 +1,10 @@
 """Coordinates authorization, single-writer execution, and durable graph recovery."""
 import os
 import asyncio
+import hashlib
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.types import Command
 from psycopg.conninfo import conninfo_to_dict
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
@@ -10,6 +12,7 @@ from psycopg_pool import AsyncConnectionPool
 from agent_graph import build_graph
 from domain.errors import AppError
 from persistence.repository import Repository
+from persistence.actions import public_action
 from services.model_client import DeepSeekClient
 from services.planning import create_planner
 
@@ -55,7 +58,7 @@ class Application:
             self.pool = make_pool(dsn)
             await self.pool.open(wait=True,timeout=12)
             async with self.pool.connection() as conn:
-                tables = await (await conn.execute("SELECT to_regclass('solovibe_v1.conversations') AS business, to_regclass('solovibe_v1.rolling_summaries') AS summaries, to_regclass('solovibe_v1.plan_sets') AS plans, to_regclass('solovibe_graph.checkpoints') AS checkpoints")).fetchone()
+                tables = await (await conn.execute("SELECT to_regclass('solovibe_v1.conversations') AS business, to_regclass('solovibe_v1.rolling_summaries') AS summaries, to_regclass('solovibe_v1.plan_sets') AS plans, to_regclass('solovibe_v1.actions') AS actions, to_regclass('solovibe_v1.saved_plans') AS saved_plans, to_regclass('solovibe_graph.checkpoints') AS checkpoints")).fetchone()
                 if not all(tables.values()):
                     raise AppError('MIGRATION_REQUIRED','请先运行 scripts/migrate_stage1.py 初始化阶段一数据表。')
             self.graph_pool = make_pool(dsn,graph=True)
@@ -99,8 +102,86 @@ class Application:
 
     async def chat(self, owner, thread, request_id, message, expected_revision):
         async with self.slots, self.repo.guard(owner,thread):
+            prior = await self.repo.request_run(thread, request_id)
+            if prior:
+                fingerprint = hashlib.sha256(f'{expected_revision}\n{message}'.encode()).hexdigest()
+                if prior['fingerprint'] != fingerprint:
+                    raise AppError('REQUEST_ID_REUSED','同一个 request_id 不能用于不同消息或版本。',409)
+                return await self.execute(prior)
+            pending = await self.repo.actions.latest(owner, thread)
+            if pending and pending['status'] == 'awaiting_confirmation':
+                action_id = pending['action_id']
+                await self.repo.actions.invalidate(action_id, 'new_message')
+                config = {'configurable':{'thread_id':thread},'recursion_limit':25}
+                checkpoint = await self.graph.aget_state(config)
+                if checkpoint.next and checkpoint.values.get('action_id') == action_id:
+                    if 'await_confirmation' in checkpoint.next:
+                        await self.graph.ainvoke(Command(resume={'action_id':action_id}),config,durability='sync')
+                    else:
+                        await self.graph.ainvoke(None,config,durability='sync')
+            elif pending and pending['status'] in ('authorized','claimed'):
+                raise AppError('ACTION_RECOVERY_REQUIRED','请先恢复上一项已确认动作。',409)
+            elif pending and pending['status'] in ('rejected','invalidated'):
+                await self.resume_action(owner, await self.repo.actions.get(owner,pending['action_id']))
             run = await self.repo.accept(owner,thread,request_id,message,expected_revision)
             return await self.execute(run)
+
+    async def prepare_action(self, owner, thread, request_id, plan_set_id, plan_id, kind, expected_revision):
+        async with self.slots, self.repo.guard(owner,thread):
+            previous = await self.repo.actions.latest(owner, thread)
+            if previous and previous['status'] in ('rejected','invalidated'):
+                await self.resume_action(owner, await self.repo.actions.get(owner,previous['action_id']))
+            row = await self.repo.actions.prepare(owner, thread, request_id, plan_set_id, plan_id,
+                                                  kind, expected_revision)
+            if row['status'] != 'awaiting_confirmation':
+                return public_action(row)
+            config = {'configurable':{'thread_id':thread},'recursion_limit':25}
+            checkpoint = await self.graph.aget_state(config)
+            if checkpoint.next and checkpoint.values.get('action_id') == str(row['action_id']):
+                if 'await_confirmation' not in checkpoint.next:
+                    await self.graph.ainvoke(None,config,durability='sync')
+            else:
+                await self.graph.ainvoke({'event_kind':'action','thread_id':thread,
+                                          'owner_id':owner,'action_id':str(row['action_id'])},
+                                         config,durability='sync')
+            checkpoint = await self.graph.aget_state(config)
+            if 'await_confirmation' not in checkpoint.next:
+                raise AppError('ACTION_CHECKPOINT_MISSING','确认中断尚未保存，请用相同 request_id 重试。',503)
+            return public_action(await self.repo.actions.get(owner, str(row['action_id'])))
+
+    async def decide_action(self, owner, action_id, decision_request_id, version, proposal_digest, approve):
+        row = await self.repo.actions.get(owner, action_id)
+        thread = str(row['thread_id'])
+        async with self.slots, self.repo.guard(owner,thread):
+            row = await self.repo.actions.decide(owner, action_id, decision_request_id,
+                                                 version, proposal_digest, approve)
+            return await self.resume_action(owner, row)
+
+    async def recover_action(self, owner, action_id):
+        row = await self.repo.actions.get(owner, action_id)
+        async with self.slots, self.repo.guard(owner,str(row['thread_id'])):
+            if row['status'] == 'awaiting_confirmation':
+                return public_action(row)
+            return await self.resume_action(owner, row)
+
+    async def resume_action(self, owner, row):
+        if row['status'] == 'completed':
+            return public_action(row)
+        thread, action_id = str(row['thread_id']), str(row['action_id'])
+        config = {'configurable':{'thread_id':thread},'recursion_limit':25}
+        for _ in range(4):
+            checkpoint = await self.graph.aget_state(config)
+            current = await self.repo.actions.get(owner, action_id)
+            if not checkpoint.next:
+                if current['status'] in ('rejected','invalidated','completed'):
+                    return public_action(current)
+                raise AppError('ACTION_CHECKPOINT_MISSING','动作检查点不可恢复；未重复执行。',409)
+            if checkpoint.values.get('action_id') != action_id:
+                raise AppError('ACTION_CHECKPOINT_MISMATCH','当前会话正在恢复另一项动作。',409)
+            graph_input = (Command(resume={'action_id':action_id})
+                           if 'await_confirmation' in checkpoint.next else None)
+            await self.graph.ainvoke(graph_input,config,durability='sync')
+        raise AppError('ACTION_RECOVERY_INCOMPLETE','动作仍在恢复中，请重试同一请求。',503)
 
     async def retry(self, owner, thread, run_id):
         async with self.slots, self.repo.guard(owner,thread):
@@ -120,7 +201,8 @@ class Application:
             if same_run and not checkpoint.next and run['output']:
                 result = {'output':run['output']}
             else:
-                graph_input = None if same_run and checkpoint.next else {'thread_id':str(run['thread_id']),'run_id':run_id}
+                graph_input = None if same_run and checkpoint.next else {'event_kind':'chat',
+                    'thread_id':str(run['thread_id']),'run_id':run_id}
                 result = await self.graph.ainvoke(graph_input,config,durability='sync')
             await self.repo.complete(run_id)
             return result['output']

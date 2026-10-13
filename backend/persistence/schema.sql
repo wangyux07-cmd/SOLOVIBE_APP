@@ -50,7 +50,42 @@ CREATE TABLE IF NOT EXISTS solovibe_v1.plan_sets (
  payload jsonb NOT NULL,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS solovibe_v1.actions (
+ action_id uuid PRIMARY KEY,
+ thread_id uuid NOT NULL REFERENCES solovibe_v1.conversations,
+ owner_id uuid NOT NULL REFERENCES solovibe_v1.sessions,
+ plan_set_id uuid NOT NULL REFERENCES solovibe_v1.plan_sets(run_id),
+ plan_id text NOT NULL,
+ context_revision integer NOT NULL,
+ kind text NOT NULL CHECK(kind IN ('save','navigate')),
+ request_id uuid NOT NULL,
+ fingerprint text NOT NULL,
+ proposal_version integer NOT NULL DEFAULT 1,
+ proposal_digest text NOT NULL,
+ plan_snapshot jsonb NOT NULL,
+ context_snapshot jsonb NOT NULL,
+ status text NOT NULL CHECK(status IN ('awaiting_confirmation','authorized','rejected','invalidated','claimed','completed')),
+ decision_request_id uuid,
+ receipt jsonb,
+ handoff_requested_at timestamptz,
+ handoff_request_id uuid,
+ expires_at timestamptz NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(),
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(thread_id, request_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS actions_one_pending ON solovibe_v1.actions(thread_id)
+ WHERE status IN ('awaiting_confirmation','authorized','claimed');
+ALTER TABLE solovibe_v1.actions ADD COLUMN IF NOT EXISTS handoff_requested_at timestamptz;
+ALTER TABLE solovibe_v1.actions ADD COLUMN IF NOT EXISTS handoff_request_id uuid;
+CREATE TABLE IF NOT EXISTS solovibe_v1.saved_plans (
+ action_id uuid PRIMARY KEY REFERENCES solovibe_v1.actions,
+ thread_id uuid NOT NULL REFERENCES solovibe_v1.conversations,
+ plan_snapshot jsonb NOT NULL,
+ saved_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE INDEX IF NOT EXISTS conversations_owner ON solovibe_v1.conversations(owner_id);
 CREATE INDEX IF NOT EXISTS node_events_run ON solovibe_v1.node_events(run_id, id);
 CREATE INDEX IF NOT EXISTS plan_sets_thread ON solovibe_v1.plan_sets(thread_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS actions_thread ON solovibe_v1.actions(thread_id, created_at DESC);
 REVOKE ALL ON SCHEMA solovibe_v1, solovibe_graph FROM PUBLIC;

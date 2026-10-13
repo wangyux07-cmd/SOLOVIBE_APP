@@ -7,9 +7,12 @@ type Snapshot = { revision: number; constraints: Record<string, string | number 
 type Message = { message_id: string; role: 'user' | 'assistant'; content: string; sequence: number };
 type Pending = { run_id: string; status: string; error_code: string | null } | null;
 type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: { walking_minutes: number; distance_meters: number; observed_at: string }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; identity_status: string }[] };
-type PlanSet = { kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[] };
+type PlanSet = { plan_set_id?: string; kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[] };
+type Action = { action_id: string; plan_id: string; kind: 'save' | 'navigate'; proposal_version: number; proposal_digest: string;
+  plan_snapshot: Plan; status: string; receipt: { kind?: string; url?: string; reason?: string; place_name?: string; note?: string } | null; expires_at: string; handoff_requested_at?: string | null };
 type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]; pending_run: Pending;
   plan_set: PlanSet | null;
+  latest_action?: Action | null;
   context_memory: { summary_revision: number; covered_until_sequence: number; raw_messages_retained: boolean } };
 type ChatResult = { response: string; kind: string; run_id: string; snapshot: Snapshot; model: { provider: string; model: string; input_tokens: number | null; output_tokens: number | null; actual_call: boolean } };
 type TraceEvent = { node: string; status: string; elapsed_ms: number };
@@ -44,6 +47,7 @@ export default function StageOneApp() {
   const [error, setError] = useState('');
   const [last, setLast] = useState<ChatResult | null>(null);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
+  const [action, setAction] = useState<Action | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -51,7 +55,8 @@ export default function StageOneApp() {
       setHealth(value);
       if (!value.ready) { setConversation(null); return; }
       bootstrapPromise ??= bootstrap().catch(cause => { bootstrapPromise = null; throw cause; });
-      setConversation(await bootstrapPromise);
+      const current = await bootstrapPromise;
+      setConversation(current); setAction(current.latest_action ?? null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '服务暂时不可用。');
     }
@@ -61,7 +66,8 @@ export default function StageOneApp() {
 
   async function reload() {
     if (!conversation) return;
-    setConversation(await request(`/api/conversations/${conversation.thread_id}`));
+    const current = await request<Conversation>(`/api/conversations/${conversation.thread_id}`);
+    setConversation(current); setAction(current.latest_action ?? null);
   }
 
   async function loadTrace(thread: string, run: string) {
@@ -106,16 +112,60 @@ export default function StageOneApp() {
     setBusy(true); setError('');
     try {
       const created = await request<Conversation>('/api/conversations', post);
-      setConversation(created); setLast(null); setTrace([]); setInput('');
+      setConversation(created); setAction(null); setLast(null); setTrace([]); setInput('');
     } catch (cause) { setError(cause instanceof Error ? cause.message : '创建会话失败。'); }
     finally { setBusy(false); }
+  }
+
+  async function prepareAction(plan: Plan, kind: 'save' | 'navigate') {
+    if (!conversation?.plan_set?.plan_set_id || busy) return;
+    setBusy(true); setError('');
+    try {
+      const result = await request<Action>(`/api/conversations/${conversation.thread_id}/actions`, {
+        ...post, body: JSON.stringify({ request_id: crypto.randomUUID(), plan_set_id: conversation.plan_set.plan_set_id,
+          plan_id: plan.plan_id, kind, expected_revision: conversation.snapshot.revision }),
+      });
+      setAction(result);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '无法准备动作。'); await reload().catch(() => undefined); }
+    finally { setBusy(false); }
+  }
+
+  async function decideAction(approve: boolean) {
+    if (!action || busy) return;
+    setBusy(true); setError('');
+    try {
+      const result = await request<Action>(`/api/actions/${action.action_id}/decision`, {
+        ...post, body: JSON.stringify({ request_id: crypto.randomUUID(), proposal_version: action.proposal_version,
+          proposal_digest: action.proposal_digest, approve }),
+      });
+      setAction(result); await reload();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '动作处理失败。'); await reload().catch(() => undefined); }
+    finally { setBusy(false); }
+  }
+
+  async function recoverAction() {
+    if (!action || busy) return;
+    setBusy(true); setError('');
+    try { setAction(await request<Action>(`/api/actions/${action.action_id}/recover`, post)); await reload(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : '恢复失败。'); }
+    finally { setBusy(false); }
+  }
+
+  async function recordHandoff() {
+    if (!action) return;
+    try {
+      const recorded = await request<Action>(`/api/actions/${action.action_id}/handoff`, {
+        ...post, body: JSON.stringify({ request_id: crypto.randomUUID() }),
+      });
+      setAction(recorded);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '导航交接记录失败。'); }
   }
 
   return <main className="min-h-screen bg-[#101613] px-5 py-8 text-[#edf3ea] md:py-12">
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 3 · 真实地点与路线</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 4 · 选择与确认</span>
       </header>
 
       <section className="py-9">
@@ -141,6 +191,16 @@ export default function StageOneApp() {
           <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7"><h2 className="text-lg font-medium">运行记录</h2>{last && <p className="mt-3 text-xs leading-6 text-[#a8b6ac]">{last.model.provider} / {last.model.model} · 输入 {last.model.input_tokens ?? '未知'} tokens · 输出 {last.model.output_tokens ?? '未知'} tokens · {last.kind}</p>}{trace.length ? <ol className="mt-4 space-y-2">{trace.map((event,index) => <li key={`${index}-${event.node}`} className="flex justify-between gap-2 border-t border-white/10 pt-2 text-xs"><span>{event.node}</span><span className={event.status === 'completed' ? 'text-[#bdd7a2]' : 'text-orange-200'}>{event.status} · {event.elapsed_ms} ms</span></li>)}</ol> : <p className="mt-4 text-sm text-[#a8b6ac]">完成一次真实请求后显示节点执行记录。</p>}</section>
         </aside>
       </div>
+      {action && <section className="mt-6 rounded-2xl border border-[#bdd7a2]/30 bg-[#19231d] p-5 md:p-7" aria-label="行动确认">
+        <h2 className="text-lg font-medium">{action.kind === 'save' ? '保存方案' : '交接步行导航'} · {action.plan_snapshot.place.name}</h2>
+        <p className="mt-2 text-sm text-[#a8b6ac]">{action.plan_snapshot.place.address} · 原方案步行约 {action.plan_snapshot.route.walking_minutes} 分钟</p>
+        {action.status === 'awaiting_confirmation' && <><p className="mt-3 text-sm text-orange-100">请核对地点。确认后会{action.kind === 'save' ? '把此方案保存到数据库' : '重新核实地点和路线，再生成高德导航链接'}。营业、费用和可进入情况仍需你自行核实。确认有效期至 {new Date(action.expires_at).toLocaleString()}。</p>
+          <div className="mt-4 flex gap-3"><button type="button" disabled={busy} onClick={() => void decideAction(true)} className="rounded-lg bg-[#bdd7a2] px-4 py-2 text-sm text-[#182416] disabled:opacity-40">确认</button><button type="button" disabled={busy} onClick={() => void decideAction(false)} className="rounded-lg border border-white/20 px-4 py-2 text-sm disabled:opacity-40">取消</button></div></>}
+        {(action.status === 'authorized' || action.status === 'claimed') && <p className="mt-3 text-sm text-orange-100">动作已确认但尚无完成回执。<button type="button" onClick={() => void recoverAction()} disabled={busy} className="ml-2 underline">恢复执行</button></p>}
+        {action.status === 'completed' && action.receipt?.kind === 'plan_saved' && <p className="mt-3 text-sm text-[#bdd7a2]">方案已保存。</p>}
+        {action.status === 'completed' && action.receipt?.kind === 'navigation_handoff_ready' && action.receipt.url && <p className="mt-3 text-sm"><a href={action.receipt.url} target="_blank" rel="noopener noreferrer" onClick={() => void recordHandoff()} className="text-[#bdd7a2] underline">打开高德步行导航</a><span className="ml-2 text-[#a8b6ac]">{action.handoff_requested_at ? '已请求打开导航；无法确认高德是否接收。' : '链接已生成，尚未代你出发。'}</span></p>}
+        {(action.status === 'rejected' || action.status === 'invalidated') && <p className="mt-3 text-sm text-orange-100">动作已{action.status === 'rejected' ? '取消' : '失效'}{action.receipt?.reason ? `（${action.receipt.reason}）` : ''}，不会执行。</p>}
+      </section>}
       {conversation?.plan_set?.plans.length ? <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7" aria-label="真实地点方案">
         <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-medium">可考虑的地点</h2><p className="text-xs text-[#a8b6ac]">依据当前条件版本 {conversation.snapshot.revision} · 仅路线已核实</p></div>
         <div className="mt-5 grid gap-4 md:grid-cols-3">{conversation.plan_set.plans.map(plan => <article key={plan.plan_id} className="rounded-xl border border-white/10 bg-[#19231d] p-5">
@@ -153,11 +213,12 @@ export default function StageOneApp() {
           <p className="mt-2 text-xs leading-6 text-[#a8b6ac]">{plan.tradeoff}</p>
           <p className="mt-2 text-xs text-orange-100">待核实：{plan.unknowns.join('、')}</p>
           <a className="mt-4 inline-block text-sm text-[#bdd7a2] underline" href={plan.place.source_url} target="_blank" rel="noopener noreferrer">在高德查看地点</a>
+          {conversation.plan_set?.plan_set_id && <div className="mt-4 flex gap-2"><button type="button" disabled={busy || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'save')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存此方案</button><button type="button" disabled={busy || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'navigate')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">准备步行导航</button></div>}
           {plan.web_sources.length > 0 && <div className="mt-4 border-t border-white/10 pt-3"><p className="text-xs text-[#a8b6ac]">网页搜索结果 · 未核实是否同一分店</p><ul className="mt-2 space-y-2">{plan.web_sources.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#bdd7a2] underline">{source.title || source.url}</a></li>)}</ul></div>}
           {plan.web_status !== 'results_unverified' && <p className="mt-3 text-xs text-[#a8b6ac]">网页资料：{plan.web_status === 'not_configured' ? '未配置搜索服务' : '本次未取得可展示结果'}</p>}
         </article>)}</div>
       </section> : null}
-      <footer className="mt-10 text-xs text-[#84938a]">阶段 3 开发预览 · 尚不能预订或替你执行行动；出发前请再次核实营业和费用。</footer>
+      <footer className="mt-10 text-xs text-[#84938a]">阶段 4 开发预览 · 可确认保存方案或交接导航；不代订、不付款。出发前请核实营业和费用。</footer>
     </div>
   </main>;
 }

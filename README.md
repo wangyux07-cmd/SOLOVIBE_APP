@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: V1 redesign in progress.** Stages 0–3 are implemented on `Refactor`. Real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser checks verify the Stage 3 planning flow. Options contain real POI/route evidence while actual spending, live opening status, and availability remain unknown. Confirmed actions remain Stage 4.
+> **Project status: V1 redesign in progress.** Stages 0–4 are implemented on `Refactor`. Real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser checks verify planning and confirmed plan saving. Amap route revalidation verifies navigation handoff. Actual spending, live opening status, and availability remain unknown.
 
 ## Why SoloVibe?
 
@@ -18,7 +18,7 @@ For example:
 
 The intended experience is to record those constraints, clarify anything essential, retrieve real place and route information, and offer at most two or three options. Each option should explain why it fits, its estimated cost and duration, its sources, and any unknowns. If the user changes their budget, subsequent planning should use the new value. Saving a plan or handing off to navigation requires confirmation of that action.
 
-**The current Stage 3 implementation generates conditional place options only after a real provider lookup. Cost, opening hours, and availability stay unknown unless separately verified.**
+**The current implementation generates conditional place options only after a real provider lookup. Saving a selected option or preparing a walking-navigation link requires a separate confirmation. Cost, opening hours, and availability stay unknown unless separately verified.**
 
 ## Planned V1 Capabilities
 
@@ -73,12 +73,12 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 | 1 · LangGraph and state | Graph execution, structured state, native persistence, session isolation, and retries | Implemented; live model/database integration and cross-process recovery verified. Failure/retry paths have contract tests but have not been fault-injected against the live provider |
 | 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Implemented; live compaction, raw-message retention, newer correction priority, and cross-process summary recovery verified |
 | 3 · Real activity options | Amap POI, detail and walking route, Tavily links, bounded screening, and persisted options | Implemented; real model/database/map/search/browser flow verified |
-| 4 · Confirmation and actions | User confirmation, saving, navigation handoff, and local plan adjustments | Planned |
+| 4 · Confirmation and actions | Version-bound proposal, durable LangGraph interrupt, atomic confirmation, plan saving, navigation handoff, recovery | Implemented; real database/map and browser flows verified. Merchant booking entry points remain unavailable without verified provider data |
 | 5 · Integration and release | End-to-end validation, failure handling, and deployment | Planned |
 
 **Branches:** `main` retains the historical prototype. The active redesign is on [`Refactor`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/Refactor). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
 
-Readiness requires a working database connection, current migrations, and a successful model generation probe. With either unavailable, health reports `ready=false` and chat requests fail explicitly. Missing map credentials leave chat available but return `provider_unavailable` for planning requests. Confirmed actions remain later stages.
+Readiness requires a working database connection, current migrations, and a successful model generation probe. With either unavailable, health reports `ready=false` and chat requests fail explicitly. Missing map credentials leave chat available but return `provider_unavailable` for planning requests. Confirmed actions use the same conversation's durable LangGraph checkpoint and a separate PostgreSQL authorization ledger.
 
 ## Run the Development Baseline
 
@@ -90,7 +90,7 @@ Set-Location SOLOVIBE_APP
 powershell -NoProfile -File scripts/setup.ps1
 ```
 
-Setup installs locked dependencies and copies environment templates only when local `.env` files are missing. **External API keys are not required to view the readiness screen.** Real conversation execution requires PostgreSQL and a model account that can complete generation requests. Real place options additionally require an Amap Web Service key; Tavily search is optional. Run the additive migration in `scripts/migrate_stage1.py` after reviewing the intended database connection; rerun it when upgrading to Stage 3 to create the plan-set table.
+Setup installs locked dependencies and copies environment templates only when local `.env` files are missing. **External API keys are not required to view the readiness screen.** Real conversation execution requires PostgreSQL and a model account that can complete generation requests. Real place options and navigation handoff additionally require an Amap Web Service key; Tavily search is optional. Run the additive migration in `scripts/migrate_stage1.py` after reviewing the intended database connection; rerun it when upgrading to Stage 4 to create the plan-set and action tables.
 
 Open two terminals at the repository root:
 
@@ -127,6 +127,8 @@ For a read-only count of completed runs, node events, and native LangGraph check
 The Stage 2 live check uses a second backend on port 8001 with `SOLOVIBE_UNDERSTAND_INPUT_TOKENS=4500` and then runs `python scripts/verify_stage2_live.py`. It creates test conversations and consumes model credits. See [Stage 2 delivery and validation](docs/STAGE2_PROGRESS_2026-10-12.md) for the exact boundary and observed results.
 
 For Stage 3, add `AMAP_API_KEY` and optionally `TAVILY_API_KEY` to `backend/.env`, rerun `python scripts/migrate_stage1.py`, then run `python scripts/verify_stage3_live.py --require-options`. That test makes actual model, map, and optional search calls and requires 1–3 persisted options with real walking-route evidence. Without a map key, it reports `maps_not_configured` and zero options. See [Stage 3 progress and verification limits](docs/STAGE3_PROGRESS_2026-10-12.md).
+
+For Stage 4, rerun `python scripts/migrate_stage1.py`, then run `python scripts/verify_stage4_live.py`. It creates a fresh conversation with real providers, checks an exact selected plan, saves it once despite duplicate confirmation, revalidates a navigation route, and verifies rejection and invalidation on new input. To check the real UI, start both services and run `$env:SOLOVIBE_LIVE_STAGE4='1'; npm run test:e2e --workspace frontend -- --grep 'real browser confirms'` in PowerShell. This covers saving, navigation-link preparation, and the recorded browser handoff. See [Stage 4 progress and verification limits](docs/STAGE4_PROGRESS_2026-10-12.md).
 
 ## Design and Development Documents
 

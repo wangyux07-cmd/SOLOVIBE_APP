@@ -1,0 +1,31 @@
+import { test, expect } from '@playwright/test';
+
+test('real browser confirms save and navigation handoff with persisted receipts', async ({ page }) => {
+  test.skip(process.env.SOLOVIBE_LIVE_STAGE4 !== '1', 'Requires configured real backend, model, Amap and PostgreSQL');
+  test.setTimeout(180_000);
+  await page.goto('/');
+  await expect(page.getByText('数据库与模型启动检查已通过')).toBeVisible();
+  await page.getByRole('button', { name: '新建会话' }).click();
+  await page.getByLabel('输入出行需求').fill('城市：上海。出发点：徐家汇地铁站。预算：60元。可用时间：40分钟。最多步行：25分钟。偏好：公园。请规划。');
+  await page.getByRole('button', { name: '发送消息' }).click();
+  await expect(page.getByRole('heading', { name: '可考虑的地点' })).toBeVisible({ timeout: 120_000 });
+  await page.getByRole('button', { name: '保存此方案' }).first().click();
+  await expect(page.getByRole('region', { name: '行动确认' })).toContainText('请核对地点');
+  await page.getByRole('button', { name: '确认', exact: true }).click();
+  await expect(page.getByText('方案已保存。')).toBeVisible({ timeout: 30_000 });
+  await page.reload();
+  await expect(page.getByText('方案已保存。')).toBeVisible();
+  await page.getByRole('button', { name: '准备步行导航' }).first().click();
+  await expect(page.getByRole('region', { name: '行动确认' })).toContainText('重新核实地点和路线');
+  await page.getByRole('button', { name: '确认', exact: true }).click();
+  const navigation = page.getByRole('link', { name: '打开高德步行导航' });
+  await expect(navigation).toHaveAttribute('href', /uri\.amap\.com\/navigation\?.*mode=walk/, { timeout: 30_000 });
+  await page.context().route('https://uri.amap.com/navigation?**', route => route.fulfill({ body: 'handoff attempted' }));
+  const popupPromise = page.waitForEvent('popup');
+  await navigation.click();
+  const popup = await popupPromise;
+  await popup.close();
+  await expect(page.getByText('已请求打开导航；无法确认高德是否接收。')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('已请求打开导航；无法确认高德是否接收。')).toBeVisible();
+});

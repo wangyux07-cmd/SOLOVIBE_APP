@@ -8,11 +8,13 @@ from psycopg.types.json import Jsonb
 
 from domain.context import ContextSnapshot, Understanding, apply_patch
 from domain.errors import AppError, Conflict
+from persistence.actions import ActionRepository, public_action
 
 
 class Repository:
     def __init__(self, pool):
         self.pool = pool
+        self.actions = ActionRepository(pool)
 
     async def owner(self, token: str | None) -> str | None:
         if not token or len(token) > 128:
@@ -63,15 +65,18 @@ class Repository:
                 (thread,),
             )).fetchone()
             plan_set = await (await conn.execute(
-                '''SELECT p.payload FROM solovibe_v1.plan_sets p
+                '''SELECT p.run_id,p.payload FROM solovibe_v1.plan_sets p
                    JOIN solovibe_v1.runs r ON r.run_id=p.run_id AND r.status='completed'
                    WHERE p.thread_id=%s AND p.context_revision=%s
                    ORDER BY p.created_at DESC LIMIT 1''',
                 (thread, row['snapshot']['revision']),
             )).fetchone()
+            action = await (await conn.execute('''SELECT * FROM solovibe_v1.actions
+                WHERE thread_id=%s ORDER BY created_at DESC LIMIT 1''', (thread,))).fetchone()
         return {'thread_id': str(row['thread_id']), 'snapshot': row['snapshot'], 'messages': messages,
                 'pending_run': pending,
-                'plan_set': plan_set['payload'] if plan_set else None,
+                'plan_set': {**plan_set['payload'], 'plan_set_id': str(plan_set['run_id'])} if plan_set else None,
+                'latest_action': public_action(action) if action else None,
                 'context_memory': {'summary_revision': summary['revision'] if summary else 0,
                                    'covered_until_sequence': summary['covered_until_sequence'] if summary else 0,
                                    'raw_messages_retained': True}}
@@ -117,6 +122,11 @@ class Repository:
     async def run(self, run_id):
         async with self.pool.connection() as conn:
             return await (await conn.execute("SELECT * FROM solovibe_v1.runs WHERE run_id=%s", (run_id,))).fetchone()
+
+    async def request_run(self, thread, request_id):
+        async with self.pool.connection() as conn:
+            return await (await conn.execute("SELECT * FROM solovibe_v1.runs WHERE thread_id=%s AND request_id=%s",
+                                             (thread, request_id))).fetchone()
 
     async def recent(self, thread, run_id):
         async with self.pool.connection() as conn:

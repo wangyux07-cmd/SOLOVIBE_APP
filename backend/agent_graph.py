@@ -3,13 +3,21 @@ import time
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
 
 from domain.context import ContextSnapshot, make_reply, apply_patch
 from services.context_builder import ContextBuilder
 from services.planning import create_planner
+from services.actions import revalidate, navigation_receipt
 
 
 class AgentState(TypedDict):
+    event_kind: str
+    owner_id: str
+    action_id: str
+    action_decision: dict
+    action_evidence: dict
+    action_receipt: dict
     schema_version: int
     thread_id: str
     run_id: str
@@ -37,6 +45,8 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
     async def accept_event(state):
         run = await repository.run(state['run_id'])
         return {
+            'event_kind': 'chat', 'action_id': '', 'action_decision': {},
+            'action_evidence': {}, 'action_receipt': {},
             'schema_version': 1, 'request_id': str(run['request_id']),
             'input_event': {'message_id':str(run['message_id']), 'content':run['input_text']},
             'context_snapshot':run['base_snapshot'], 'recent_messages':[],
@@ -99,6 +109,60 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
     async def persist_reply(state):
         return {'output':await repository.save_reply(state['run_id'],state['reply'])}
 
+    async def prepare_action(state):
+        row = await repository.actions.get(state['owner_id'], state['action_id'])
+        if str(row['thread_id']) != state['thread_id']:
+            raise ValueError('Action belongs to another conversation')
+        return {'action_decision': {}, 'action_evidence': {}, 'action_receipt': {},
+                'output': {}}
+
+    async def await_confirmation(state):
+        # This node is replayed after Command(resume=...), so it has no side effects.
+        decision = interrupt({'action_id': state['action_id'], 'kind': 'confirmation'})
+        return {'action_decision': decision}
+
+    async def read_action_decision(state):
+        row = await repository.actions.get(state['owner_id'], state['action_id'])
+        if state['action_decision'].get('action_id') != state['action_id']:
+            raise ValueError('Resume action mismatch')
+        return {'action_decision': {'status': row['status']}}
+
+    async def cancel_action(state):
+        row = await repository.actions.get(state['owner_id'], state['action_id'])
+        return {'output': {'action_id': state['action_id'], 'status': row['status'],
+                           'receipt': row['receipt']}}
+
+    async def revalidate_selected(state):
+        row = await repository.actions.get(state['owner_id'], state['action_id'])
+        if row['status'] not in ('authorized','claimed'):
+            return {'action_evidence': {'valid': False, 'reason': 'not_authorized'}}
+        evidence = await revalidate(row, planning_service().maps)
+        if not evidence['valid']:
+            await repository.actions.invalidate(state['action_id'], evidence['reason'])
+        return {'action_evidence': evidence}
+
+    async def invalidate_action(state):
+        row = await repository.actions.get(state['owner_id'], state['action_id'])
+        return {'output': {'action_id': state['action_id'], 'status': row['status'],
+                           'receipt': row['receipt']}}
+
+    async def claim_action(state):
+        row = await repository.actions.claim(state['action_id'])
+        return {'action_decision': {'status': row['status']}}
+
+    async def execute_or_handoff(state):
+        row = await repository.actions.get(state['owner_id'], state['action_id'])
+        if row['status'] == 'completed':
+            return {'action_receipt': row['receipt']}
+        receipt = ({'kind': 'plan_saved', 'place_name': row['plan_snapshot']['place']['name']}
+                   if row['kind'] == 'save' else navigation_receipt(row, state['action_evidence']))
+        return {'action_receipt': receipt}
+
+    async def persist_receipt(state):
+        row = await repository.actions.finish(state['action_id'], state['action_receipt'])
+        return {'output': {'action_id': state['action_id'], 'status': row['status'],
+                           'receipt': row['receipt']}}
+
     def tracked(name, action):
         async def node(state):
             started = time.monotonic()
@@ -121,7 +185,14 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
                'persist_reply':persist_reply}
     for name, action in actions.items():
         graph.add_node(name,tracked(name,action))
-    graph.add_edge(START,'accept_event')
+    for name, action in {'prepare_action':prepare_action, 'await_confirmation':await_confirmation,
+                         'read_action_decision':read_action_decision, 'cancel_action':cancel_action,
+                         'revalidate_selected':revalidate_selected, 'invalidate_action':invalidate_action,
+                         'claim_action':claim_action, 'execute_or_handoff':execute_or_handoff,
+                         'persist_receipt':persist_receipt}.items():
+        graph.add_node(name,action)
+    graph.add_conditional_edges(START, lambda state: 'prepare_action' if state.get('event_kind') == 'action' else 'accept_event',
+                                {'prepare_action':'prepare_action','accept_event':'accept_event'})
     graph.add_edge('accept_event','prepare_context')
     graph.add_edge('prepare_context','compact_history')
     graph.add_edge('compact_history','understand_context')
@@ -135,4 +206,19 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
     graph.add_edge('enrich_sources','publish_plans')
     graph.add_edge('publish_plans','persist_reply')
     graph.add_edge('persist_reply',END)
+    graph.add_edge('prepare_action','await_confirmation')
+    graph.add_edge('await_confirmation','read_action_decision')
+    graph.add_conditional_edges('read_action_decision',
+        lambda state: 'revalidate_selected' if state['action_decision']['status'] in ('authorized','claimed') else 'cancel_action',
+        {'revalidate_selected':'revalidate_selected','cancel_action':'cancel_action'})
+    graph.add_edge('cancel_action',END)
+    graph.add_conditional_edges('revalidate_selected',
+        lambda state: 'claim_action' if state['action_evidence']['valid'] else 'invalidate_action',
+        {'claim_action':'claim_action','invalidate_action':'invalidate_action'})
+    graph.add_edge('invalidate_action',END)
+    graph.add_conditional_edges('claim_action',
+        lambda state: 'execute_or_handoff' if state['action_decision']['status'] in ('claimed','completed') else 'invalidate_action',
+        {'execute_or_handoff':'execute_or_handoff','invalidate_action':'invalidate_action'})
+    graph.add_edge('execute_or_handoff','persist_receipt')
+    graph.add_edge('persist_receipt',END)
     return graph.compile(checkpointer=checkpointer)

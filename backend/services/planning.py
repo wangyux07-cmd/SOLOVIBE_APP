@@ -163,7 +163,9 @@ class AmapProvider:
         if not pois or not isinstance(pois[0], dict):
             raise ProviderFailure('detail_not_found')
         item = pois[0]
-        if scalar(item.get('id')) != place['poi_id'] or coordinate(item.get('location')) != place['coordinate']:
+        if (scalar(item.get('id')) != place['poi_id'] or
+                coordinate(item.get('location')) != place['coordinate'] or
+                (scalar(item.get('name')) and scalar(item.get('name')) != place['name'])):
             raise ProviderFailure('identity_conflict')
         address = scalar(item.get('address'))
         if address and address != place['address']:

@@ -14,8 +14,8 @@ from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.5.0'
-STAGE = 'stage3'
+VERSION = '0.6.0'
+STAGE = 'stage4'
 COOKIE = 'solovibe_session'
 
 
@@ -32,6 +32,28 @@ class ChatRequest(BaseModel):
         if not value.strip():
             raise ValueError('message must not be blank')
         return value
+
+
+class ActionRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+    plan_set_id: UUID
+    plan_id: str = Field(min_length=1, max_length=180)
+    kind: str = Field(pattern='^(save|navigate)$')
+    expected_revision: int = Field(ge=0)
+
+
+class DecisionRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+    proposal_version: int = Field(ge=1)
+    proposal_digest: str = Field(pattern='^[0-9a-f]{64}$')
+    approve: bool
+
+
+class HandoffRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
 
 
 def create_app():
@@ -129,6 +151,31 @@ def create_app():
         current = await runtime.repo.read(await owner(request),str(thread_id))
         return {'thread_id':str(thread_id), 'context_revision':current['snapshot']['revision'],
                 'plan_set':current['plan_set']}
+
+    @app.post('/api/conversations/{thread_id}/actions')
+    async def prepare_action(thread_id:UUID,body:ActionRequest,request:Request):
+        return await runtime.prepare_action(await owner(request),str(thread_id),str(body.request_id),
+            str(body.plan_set_id),body.plan_id,body.kind,body.expected_revision)
+
+    @app.get('/api/actions/{action_id}')
+    async def action(action_id:UUID,request:Request):
+        from persistence.actions import public_action
+        return public_action(await runtime.repo.actions.get(await owner(request),str(action_id)))
+
+    @app.post('/api/actions/{action_id}/decision')
+    async def decide_action(action_id:UUID,body:DecisionRequest,request:Request):
+        return await runtime.decide_action(await owner(request),str(action_id),str(body.request_id),
+                                           body.proposal_version,body.proposal_digest,body.approve)
+
+    @app.post('/api/actions/{action_id}/recover')
+    async def recover_action(action_id:UUID,request:Request):
+        return await runtime.recover_action(await owner(request),str(action_id))
+
+    @app.post('/api/actions/{action_id}/handoff')
+    async def handoff(action_id:UUID,body:HandoffRequest,request:Request):
+        from persistence.actions import public_action
+        return public_action(await runtime.repo.actions.record_handoff(
+            await owner(request),str(action_id),str(body.request_id)))
 
     @app.post('/api/chat')
     async def chat(body:ChatRequest,request:Request):
