@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: V1 redesign in progress.** Stages 0–4 are implemented on `Refactor`, and Stage 5 has begun. Real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser checks verify planning and confirmed plan saving. Amap route revalidation verifies navigation handoff. POI 2.0 supplies available branch ratings, reference spend, recorded hours, and descriptive tags; actual spending, live opening status, menus, and availability remain unknown. [Redesigned Plan V2](docs/AI_AGENT_REDESIGNED_PLAN_V2.md) defines the remaining release work.
+> **Project status: redesign implementation in progress.** Stages 0–4 are implemented on `Refactor`, and Stage 5A has verified real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser flows. Amap provides branch and route evidence; live opening status, branch menus, offers, and availability have not been implemented. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the next work and its evidence requirements.
 
 ## Why SoloVibe?
 
@@ -136,7 +136,9 @@ The following documents are currently written in Chinese and are linked from the
 
 - [Original project review and redesign proposal](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGN_PROPOSAL.md)
 - [Redesigned Plan V1: architecture, state management, and delivery stages](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V1.md)
-- [Redesigned Plan V2: current release-oriented implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V2.md)
+- [Redesigned Plan V2: prior release-oriented implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V2.md)
+- [Redesigned Plan V3: complete next-stage implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V3.md)
+- [External information acquisition plan: maps, public pages, merchants, and availability](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_INFORMATION_ACQUISITION_PLAN_V2.md)
 - [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
 - [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
 - [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)
