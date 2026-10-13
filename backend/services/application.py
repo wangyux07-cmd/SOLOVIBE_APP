@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from agent_graph import build_graph
-from domain.errors import AppError
+from domain.errors import AppError, Conflict
 from persistence.repository import Repository
 from persistence.actions import public_action
 from persistence.public_evidence import PublicEvidenceRepository
@@ -93,6 +93,8 @@ class Application:
                 await self.planner.web.close()
             if self.planner.public:
                 await self.planner.public.close()
+            if self.planner.merchant_live:
+                await self.planner.merchant_live.close()
         if self.model:
             await self.model.close()
         if self.graph_pool:
@@ -103,6 +105,25 @@ class Application:
     def require_ready(self):
         if not self.ready:
             raise self.error
+
+    async def read_conversation(self, owner, thread):
+        """Recheck advertised merchant facts before returning a cached plan."""
+        result = await self.repo.read(owner, thread)
+        from services.merchant_live import live_snapshot_current
+        for plan in (result.get('plan_set') or {}).get('plans', []):
+            advertised = plan.get('live_info')
+            if not advertised:
+                continue
+            try:
+                fresh = await self.planner.merchant_live.read(plan['place'])
+            except Exception:
+                fresh = None
+            if not live_snapshot_current(advertised, fresh['info'] if fresh else None):
+                plan['live_info'] = None
+                plan['live_recheck_required'] = True
+                plan['unknowns'] = list(dict.fromkeys(
+                    [*plan.get('unknowns', []), '当前营业状态', '到店可用性']))
+        return result
 
     async def set_browser_origin(self, owner, thread, request_id, expected_revision,
                                  longitude, latitude, accuracy_m):
@@ -148,6 +169,19 @@ class Application:
             previous = await self.repo.actions.latest(owner, thread)
             if previous and previous['status'] in ('rejected','invalidated'):
                 await self.resume_action(owner, await self.repo.actions.get(owner,previous['action_id']))
+            if not await self.repo.actions.by_request(owner, thread, request_id):
+                plan = await self.repo.actions.plan_for_prepare(
+                    owner, thread, plan_set_id, plan_id, expected_revision)
+                advertised = plan.get('live_info')
+                if advertised:
+                    from services.merchant_live import live_snapshot_current
+                    try:
+                        result = await self.planner.merchant_live.read(plan['place'])
+                    except Exception:
+                        result = None
+                    if not live_snapshot_current(advertised, result['info'] if result else None):
+                        raise Conflict('MERCHANT_STATE_CHANGED',
+                                       '商家实时状态已过期、变化或暂时不可核实，请重新生成方案后确认。')
             row = await self.repo.actions.prepare(owner, thread, request_id, plan_set_id, plan_id,
                                                   kind, expected_revision)
             if row['status'] != 'awaiting_confirmation':

@@ -14,8 +14,8 @@ from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.9.0'
-STAGE = 'v3-3'
+VERSION = '0.10.0'
+STAGE = 'v3-4'
 COOKIE = 'solovibe_session'
 
 
@@ -153,11 +153,11 @@ def create_app():
 
     @app.get('/api/conversations/{thread_id}')
     async def conversation(thread_id:UUID,request:Request):
-        return await runtime.repo.read(await owner(request),str(thread_id))
+        return await runtime.read_conversation(await owner(request),str(thread_id))
 
     @app.get('/api/conversations/{thread_id}/plans')
     async def plans(thread_id:UUID,request:Request):
-        current = await runtime.repo.read(await owner(request),str(thread_id))
+        current = await runtime.read_conversation(await owner(request),str(thread_id))
         return {'thread_id':str(thread_id), 'context_revision':current['snapshot']['revision'],
                 'plan_set':current['plan_set']}
 

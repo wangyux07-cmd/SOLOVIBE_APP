@@ -137,7 +137,8 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
         row = await repository.actions.get(state['owner_id'], state['action_id'])
         if row['status'] not in ('authorized','claimed'):
             return {'action_evidence': {'valid': False, 'reason': 'not_authorized'}}
-        evidence = await revalidate(row, planning_service().maps, planning_service().public)
+        evidence = await revalidate(row, planning_service().maps, planning_service().public,
+                                    planning_service().merchant_live)
         if not evidence['valid']:
             await repository.actions.invalidate(state['action_id'], evidence['reason'])
         return {'action_evidence': evidence}

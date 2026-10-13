@@ -338,9 +338,9 @@ class TavilyProvider:
 
 class Planner:
     def __init__(self, maps: AmapProvider, web: TavilyProvider | None = None,
-                 public=None, evidence_store=None):
+                 public=None, evidence_store=None, merchant_live=None):
         self.maps, self.web = maps, web
-        self.public, self.evidence_store = public, evidence_store
+        self.public, self.evidence_store, self.merchant_live = public, evidence_store, merchant_live
 
     async def collect(self, snapshot: ContextSnapshot):
         c = snapshot.constraints
@@ -525,6 +525,18 @@ class Planner:
                 place['public_info']['offers'] = offers
             except Exception:
                 place['public_info']['status'] = 'pipeline_unavailable'
+        if self.merchant_live:
+            async def live_one(place):
+                place['live_info'] = None
+                try:
+                    result = await self.merchant_live.read(place)
+                    if result and self.evidence_store:
+                        await self.evidence_store.persist(place, result['evidence'])
+                        place['live_info'] = result['info']
+                except Exception:
+                    # Do not display a previous availability assertion on failure.
+                    place['live_info'] = None
+            await asyncio.gather(*(live_one(place) for place in selected))
         if budget_cny is not None:
             selected.sort(key=lambda place: (
                 0 if any(offer['budget_option'] == 'within_limit'
@@ -546,6 +558,14 @@ class Planner:
             if full_status == 'unknown':
                 unknowns.append('完整活动时长')
             facts = place.get('facts')
+            live_info = place.get('live_info')
+            if live_info and datetime.fromisoformat(live_info['valid_until']) > datetime.now(timezone.utc):
+                if 'open_now' in live_info:
+                    unknowns.remove('当前营业状态')
+                if 'availability' in live_info:
+                    unknowns.remove('到店可用性')
+            else:
+                live_info = None
             public_info = place.get('public_info') or {}
             now = datetime.now(timezone.utc)
             offers = [offer for offer in public_info.get('offers', [])
@@ -569,14 +589,19 @@ class Planner:
                           'facts': facts, 'detail_status': place.get('detail_status'),
                           'web_status': place['web_status'], 'web_sources': place['web_sources'],
                           'public_info': public_info,
+                          'live_info': live_info,
                           'hours_evidence': schedule_evidence(facts),
                           'budget_option': budget_option,
                           'feasibility': 'outbound_route_verified_other_facts_unknown',
                           'feasibility_checks': {'outbound_walk': 'pass', 'full_activity_time': full_status,
-                                                 'budget': 'unknown', 'open_now': 'unknown'},
+                                                 'budget': 'unknown',
+                                                 'open_now': ('pass' if live_info.get('open_now') is True else
+                                                              'fail' if live_info.get('open_now') is False else 'unknown')
+                                                 if live_info else 'unknown'},
                           'unknowns': unknowns,
                           'tradeoff': (f'去程 {route["walking_minutes"]} 分钟，返程 {return_route["walking_minutes"]} 分钟，'
-                                       f'按计划停留 {dwell} 分钟并预留 10 分钟，总计约 {full_minutes} 分钟；预算与营业仍需核实。'
+                                       f'按计划停留 {dwell} 分钟并预留 10 分钟，总计约 {full_minutes} 分钟；'
+                                       f'预算与未获授权的动态信息仍需核实。'
                                        if full_minutes is not None else
                                        f'去程步行约 {route["walking_minutes"]} 分钟，{route["distance_meters"]} 米；'
                                        '返程或停留时间尚未完整核实。')})
@@ -600,7 +625,9 @@ class Planner:
 
 def create_planner(evidence_store=None):
     from config import is_configured
+    from services.merchant_live import MerchantLiveService
     from services.public_sources import OfficialEvidenceService
     tavily_key = os.getenv('TAVILY_API_KEY', '').strip() if is_configured('TAVILY_API_KEY') else ''
     return Planner(AmapProvider(os.getenv('AMAP_API_KEY', '').strip() if is_configured('AMAP_API_KEY') else ''),
-                   TavilyProvider(tavily_key), OfficialEvidenceService(tavily_key), evidence_store)
+                   TavilyProvider(tavily_key), OfficialEvidenceService(tavily_key), evidence_store,
+                   MerchantLiveService.from_environment())

@@ -6,11 +6,22 @@ from domain.errors import AppError
 from services.planning import ProviderFailure, coordinate
 
 
-async def revalidate(action, maps, public=None):
+async def revalidate(action, maps, public=None, merchant_live=None):
     if action['expires_at'] <= datetime.now(timezone.utc):
         return {'valid': False, 'reason': 'expired'}
     plan = action['plan_snapshot']
     context = action['context_snapshot']['constraints']
+    advertised_live = plan.get('live_info')
+    if advertised_live:
+        from services.merchant_live import live_snapshot_current
+        if not merchant_live:
+            return {'valid': False, 'reason': 'merchant_source_unavailable'}
+        try:
+            result = await merchant_live.read(plan['place'])
+        except Exception:
+            result = None
+        if not live_snapshot_current(advertised_live, result['info'] if result else None):
+            return {'valid': False, 'reason': 'merchant_state_changed'}
     advertised = (plan.get('public_info') or {}).get('offers') or []
     if advertised:
         if not public:

@@ -43,6 +43,28 @@ class ActionRepository:
                 (thread, owner))).fetchone()
         return public_action(row) if row else None
 
+    async def by_request(self, owner, thread, request_id):
+        async with self.pool.connection() as conn:
+            return await (await conn.execute('''SELECT a.* FROM solovibe_v1.actions a
+                JOIN solovibe_v1.conversations c ON c.thread_id=a.thread_id
+                WHERE a.thread_id=%s AND a.request_id=%s AND a.owner_id=%s AND c.owner_id=%s''',
+                (thread, request_id, owner, owner))).fetchone()
+
+    async def plan_for_prepare(self, owner, thread, plan_set_id, plan_id, revision):
+        async with self.pool.connection() as conn:
+            row = await (await conn.execute('''SELECT p.payload FROM solovibe_v1.plan_sets p
+                JOIN solovibe_v1.conversations c ON c.thread_id=p.thread_id
+                JOIN solovibe_v1.runs r ON r.run_id=p.run_id AND r.status='completed'
+                WHERE p.run_id=%s AND p.thread_id=%s AND p.context_revision=%s AND c.owner_id=%s''',
+                (plan_set_id, thread, revision, owner))).fetchone()
+        if not row:
+            raise Conflict('PLAN_STALE', '方案集已失效，请重新生成。')
+        plan = next((item for item in row['payload'].get('plans', [])
+                     if item.get('plan_id') == plan_id), None)
+        if not plan:
+            raise Conflict('PLAN_NOT_FOUND', '所选地点不在该版本方案中。')
+        return plan
+
     async def prepare(self, owner, thread, request_id, plan_set_id, plan_id, kind, revision):
         fingerprint = digest([plan_set_id, plan_id, kind, revision])
         async with self.pool.connection() as conn, conn.transaction():
@@ -87,6 +109,14 @@ class ActionRepository:
                     raise Conflict('OFFER_STALE', '优惠证据无效，请重新生成方案。') from None
                 if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
                     raise Conflict('OFFER_STALE', '优惠已过期，请重新生成方案。')
+            live = plan.get('live_info')
+            if live:
+                try:
+                    live_expiry = datetime.fromisoformat(live['valid_until'])
+                except (KeyError, TypeError, ValueError):
+                    raise Conflict('MERCHANT_STATE_STALE', '商家状态证据无效，请重新生成方案。') from None
+                if live_expiry.tzinfo is None or live_expiry <= datetime.now(timezone.utc):
+                    raise Conflict('MERCHANT_STATE_STALE', '商家状态已过期，请重新生成方案。')
             try:
                 observed = [datetime.fromisoformat(plan[key]['observed_at'].replace('Z', '+00:00'))
                             for key in ('place','route')]

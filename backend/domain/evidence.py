@@ -111,6 +111,12 @@ class VenueClaim(BaseModel):
         if self.field in {"offer", "open_now", "availability"} and self.status == ClaimStatus.verified:
             if self.valid_until is None:
                 raise ValueError("current claims require an expiration")
+        if self.field == "open_now" and self.status == ClaimStatus.verified:
+            if not isinstance(self.value, bool):
+                raise ValueError("verified opening status must be a boolean")
+        if self.field == "availability" and self.status == ClaimStatus.verified:
+            if not isinstance(self.value, str) or self.value not in {"available", "limited", "unavailable"}:
+                raise ValueError("verified availability must be a known status")
         if self.field == "price" and self.status == ClaimStatus.verified:
             if (isinstance(self.value, bool) or not isinstance(self.value, (int, float))
                     or not math.isfinite(self.value) or self.value < 0 or self.unit != "CNY"):
