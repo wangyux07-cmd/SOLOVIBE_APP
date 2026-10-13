@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: V1 redesign in progress.** Stages 0–4 are implemented on `Refactor`. Real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser checks verify planning and confirmed plan saving. Amap route revalidation verifies navigation handoff. Actual spending, live opening status, and availability remain unknown. [Redesigned Plan V2](docs/AI_AGENT_REDESIGNED_PLAN_V2.md) defines the remaining release work.
+> **Project status: V1 redesign in progress.** Stages 0–4 are implemented on `Refactor`, and Stage 5 has begun. Real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser checks verify planning and confirmed plan saving. Amap route revalidation verifies navigation handoff. POI 2.0 supplies available branch ratings, reference spend, recorded hours, and descriptive tags; actual spending, live opening status, menus, and availability remain unknown. [Redesigned Plan V2](docs/AI_AGENT_REDESIGNED_PLAN_V2.md) defines the remaining release work.
 
 ## Why SoloVibe?
 
@@ -74,7 +74,7 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 | 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Implemented; live compaction, raw-message retention, newer correction priority, and cross-process summary recovery verified |
 | 3 · Real activity options | Amap POI, detail and walking route, Tavily links, bounded screening, and persisted options | Implemented; real model/database/map/search/browser flow verified |
 | 4 · Confirmation and actions | Version-bound proposal, durable LangGraph interrupt, atomic confirmation, plan saving, navigation handoff, recovery | Implemented; real database/map and browser flows verified. Merchant booking entry points remain unavailable without verified provider data |
-| 5 · Integration and release | End-to-end validation, failure handling, and deployment | Planned |
+| 5 · Integration and release | External-data evidence, local adjustment, recovery, lifecycle, and deployment | In progress; the external-data increment is verified, while local adjustment and release work remain |
 
 **Branches:** `main` retains the historical prototype. The active redesign is on [`Refactor`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/Refactor). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
 
@@ -137,5 +137,6 @@ The following documents are currently written in Chinese and are linked from the
 - [Original project review and redesign proposal](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGN_PROPOSAL.md)
 - [Redesigned Plan V1: architecture, state management, and delivery stages](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V1.md)
 - [Redesigned Plan V2: current release-oriented implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V2.md)
+- [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
 - [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
 - [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)

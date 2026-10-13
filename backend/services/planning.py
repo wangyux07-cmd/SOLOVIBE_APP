@@ -6,6 +6,7 @@ mark a route usable; missing cost, hours or web identity stay unknown.
 import asyncio
 import math
 import os
+import re
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -42,6 +43,24 @@ def decimal_fact(value, maximum):
     except (TypeError, ValueError):
         return None
     return round(number, 1) if math.isfinite(number) and 0 < number <= maximum else None
+
+
+def venue_mentioned(place, text):
+    """A search hit is only a lead if it mentions this exact venue name.
+
+    Matching a chain name or shopping mall alone is not enough to attach
+    merchant claims to a particular branch.
+    """
+    name = re.sub(r'[^\w]', '', scalar(place.get('name')).casefold())
+    content = re.sub(r'[^\w]', '', text.casefold())
+    return len(name) >= 4 and name in content
+
+
+def specialty_tags(value):
+    """Amap POI tags are historical descriptors, not a live menu or offer."""
+    if not isinstance(value, str):
+        return []
+    return [tag[:60] for tag in (part.strip() for part in re.split(r'[,，]', value)) if tag][:6]
 
 
 class AmapProvider:
@@ -153,10 +172,12 @@ class AmapProvider:
         if seconds < 0 or meters < 0:
             raise ProviderFailure('invalid_response')
         return {'walking_minutes': math.ceil(seconds / 60), 'distance_meters': meters,
-                'provider': 'amap', 'observed_at': datetime.now(timezone.utc).isoformat()}
+                'provider': 'amap', 'origin_coordinate': origin,
+                'destination_coordinate': destination, 'destination_poi_id': destination_id,
+                'observed_at': datetime.now(timezone.utc).isoformat()}
 
     async def detail(self, place):
-        data = await self.get('/v3/place/detail', {'id': place['poi_id'], 'extensions': 'all'})
+        data = await self.get('/v5/place/detail', {'id': place['poi_id'], 'show_fields': 'business'})
         pois = data.get('pois')
         if not isinstance(pois, list):
             raise ProviderFailure('invalid_response')
@@ -170,11 +191,13 @@ class AmapProvider:
         address = scalar(item.get('address'))
         if address and address != place['address']:
             raise ProviderFailure('identity_conflict')
-        extension = item.get('biz_ext') if isinstance(item.get('biz_ext'), dict) else {}
+        business = item.get('business') if isinstance(item.get('business'), dict) else {}
         return {'provider': 'amap', 'observed_at': datetime.now(timezone.utc).isoformat(),
-                'rating': decimal_fact(extension.get('rating'), 5),
-                'average_cost_cny': decimal_fact(extension.get('cost'), 100000),
-                'recorded_hours': scalar(extension.get('opentime2') or extension.get('open_time'))[:120] or None,
+                'rating': decimal_fact(business.get('rating'), 5),
+                'average_cost_cny': decimal_fact(business.get('cost'), 100000),
+                'recorded_hours': scalar(business.get('opentime_week'))[:120] or None,
+                'recorded_today_hours': scalar(business.get('opentime_today'))[:120] or None,
+                'specialty_tags': specialty_tags(business.get('tag')),
                 'source_url': place['source_url']}
 
 
@@ -210,9 +233,11 @@ class TavilyProvider:
                     raise ProviderFailure('invalid_response')
                 return [{'title': scalar(item.get('title'))[:160], 'url': scalar(item.get('url')),
                          'snippet': scalar(item.get('content'))[:500], 'provider': 'tavily',
-                         'identity_status': 'unverified', 'observed_at': datetime.now(timezone.utc).isoformat()}
+                         'identity_status': 'unverified', 'relevance': 'venue_name_mentioned',
+                         'observed_at': datetime.now(timezone.utc).isoformat()}
                         for item in data['results'] if isinstance(item, dict)
-                        and scalar(item.get('url')).startswith(('https://', 'http://'))][:3]
+                        and scalar(item.get('url')).startswith(('https://', 'http://'))
+                        and venue_mentioned(place, scalar(item.get('title')) + ' ' + scalar(item.get('content')))][:3]
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 failure = ProviderFailure('timeout' if isinstance(exc, httpx.TimeoutException) else 'network')
             except (ValueError, TypeError):
@@ -337,13 +362,16 @@ class Planner:
         plans = []
         for place in selected:
             route = place['route']
+            facts = place.get('facts')
             plans.append({'plan_id': f'amap:{place["poi_id"]}', 'context_revision': snapshot.revision,
                           'place': {key: place[key] for key in ('provider', 'poi_id', 'name', 'address', 'city', 'coordinate', 'category', 'source_url', 'observed_at')},
-                          'route': route, 'facts': place.get('facts'), 'detail_status': place.get('detail_status'),
+                          'route': route, 'facts': facts, 'detail_status': place.get('detail_status'),
                           'web_status': place['web_status'], 'web_sources': place['web_sources'],
-                          'feasibility': 'route_verified_other_facts_unknown',
-                          'unknowns': ['实际消费', '当前营业状态', '到店可用性'],
-                          'tradeoff': f'步行约 {route["walking_minutes"]} 分钟，{route["distance_meters"]} 米；预算与营业情况尚需核实。'})
+                          'feasibility': 'outbound_route_verified_other_facts_unknown',
+                          'feasibility_checks': {'outbound_walk': 'pass', 'full_activity_time': 'unknown',
+                                                 'budget': 'unknown', 'open_now': 'unknown'},
+                          'unknowns': ['实际消费', '当前营业状态', '到店可用性', '完整菜单、套餐及当前优惠'],
+                          'tradeoff': f'去程步行约 {route["walking_minutes"]} 分钟，{route["distance_meters"]} 米；完整活动时长、预算与营业情况尚需核实。'})
         if plans:
             response = f'找到 {len(plans)} 个真实地点，已核对从你提供的位置步行到达的路线。实际消费、营业时间和是否可进入仍未知，请查看来源后再决定。'
             kind = 'options_ready'

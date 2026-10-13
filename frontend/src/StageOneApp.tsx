@@ -6,7 +6,7 @@ type Health = { ready: boolean; stage: string; blocker?: { code: string; message
 type Snapshot = { revision: number; constraints: Record<string, string | number | string[] | null>; sources: Record<string, { quote: string; basis: string; revision: number }> };
 type Message = { message_id: string; role: 'user' | 'assistant'; content: string; sequence: number };
 type Pending = { run_id: string; status: string; error_code: string | null } | null;
-type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: { walking_minutes: number; distance_meters: number; observed_at: string }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; identity_status: string }[] };
+type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: { walking_minutes: number; distance_meters: number; observed_at: string }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; recorded_today_hours?: string | null; specialty_tags?: string[]; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; snippet?: string; identity_status: string }[] };
 type PlanSet = { plan_set_id?: string; kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[] };
 type Action = { action_id: string; plan_id: string; kind: 'save' | 'navigate'; proposal_version: number; proposal_digest: string;
   plan_snapshot: Plan; status: string; receipt: { kind?: string; url?: string; reason?: string; place_name?: string; note?: string } | null; expires_at: string; handoff_requested_at?: string | null };
@@ -219,13 +219,16 @@ export default function StageOneApp() {
           <h3 className="mt-2 text-lg font-medium">{plan.place.name}</h3>
           <p className="mt-2 text-sm text-[#a8b6ac]">{plan.place.address}</p>
           <p className="mt-4 text-sm">步行约 {plan.route.walking_minutes} 分钟 · {plan.route.distance_meters} 米</p>
-          <p className="mt-2 text-xs text-[#a8b6ac]">高德记录：评分 {plan.facts?.rating ?? '未知'} · 参考人均 {plan.facts?.average_cost_cny == null ? '未知' : `${plan.facts.average_cost_cny} 元`}</p>
+          <p className="mt-2 text-xs text-[#a8b6ac]">高德地点资料：评分 {plan.facts?.rating ?? '未知'} · 参考人均 {plan.facts?.average_cost_cny == null ? '未知' : `${plan.facts.average_cost_cny} 元`}</p>
           {plan.facts?.recorded_hours && <p className="mt-1 text-xs text-[#a8b6ac]">登记营业时间：{plan.facts.recorded_hours}（非实时）</p>}
+          {plan.facts?.recorded_today_hours && <p className="mt-1 text-xs text-[#a8b6ac]">高德所列今日时段：{plan.facts.recorded_today_hours}（不代表此刻营业）</p>}
+          {!!plan.facts?.specialty_tags?.length && <p className="mt-1 text-xs leading-5 text-[#a8b6ac]">高德特色标签：{plan.facts.specialty_tags.join('、')}（并非实时菜单或优惠）</p>}
+          {plan.facts?.observed_at && <p className="mt-1 text-xs text-[#84938a]">地点资料查询于 {new Date(plan.facts.observed_at).toLocaleString()}</p>}
           <p className="mt-2 text-xs leading-6 text-[#a8b6ac]">{plan.tradeoff}</p>
           <p className="mt-2 text-xs text-orange-100">待核实：{plan.unknowns.join('、')}</p>
           <a className="mt-4 inline-block text-sm text-[#bdd7a2] underline" href={plan.place.source_url} target="_blank" rel="noopener noreferrer">在高德查看地点</a>
           {conversation.plan_set?.plan_set_id && <div className="mt-4 flex gap-2"><button type="button" disabled={busy || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'save')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存此方案</button><button type="button" disabled={busy || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'navigate')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">准备步行导航</button></div>}
-          {plan.web_sources.length > 0 && <div className="mt-4 border-t border-white/10 pt-3"><p className="text-xs text-[#a8b6ac]">网页搜索结果 · 未核实是否同一分店</p><ul className="mt-2 space-y-2">{plan.web_sources.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#bdd7a2] underline">{source.title || source.url}</a></li>)}</ul></div>}
+          {plan.web_sources.length > 0 && <div className="mt-4 border-t border-white/10 pt-3"><p className="text-xs text-[#a8b6ac]">网页线索 · 提及地点名称，尚未核实是否同一分店；内容不作为套餐或营业承诺</p><ul className="mt-2 space-y-2">{plan.web_sources.map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#bdd7a2] underline">{source.title || source.url}</a>{source.snippet && <p className="mt-1 line-clamp-3 text-xs text-[#a8b6ac]">{source.snippet}</p>}</li>)}</ul></div>}
           {plan.web_status !== 'results_unverified' && <p className="mt-3 text-xs text-[#a8b6ac]">网页资料：{plan.web_status === 'not_configured' ? '未配置搜索服务' : '本次未取得可展示结果'}</p>}
         </article>)}</div>
       </section> : null}

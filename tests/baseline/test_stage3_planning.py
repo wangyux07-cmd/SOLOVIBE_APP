@@ -31,8 +31,12 @@ async def test_real_provider_contract_builds_only_route_checked_options():
             duration = '3000' if request.url.params['destination_id'] == 'A2' else '600'
             return httpx.Response(200, json={'status':'1','route':{'paths':[{'cost':{'duration':duration},'distance':'750'}]}})
         if request.url.path.endswith('/place/detail'):
+            assert request.url.path == '/v5/place/detail'
+            assert request.url.params['show_fields'] == 'business'
             return httpx.Response(200, json={'status':'1','pois':[{'id':'A1','location':'121.439000,31.196000',
-                'address':'肇嘉浜路','biz_ext':{'rating':'4.2','cost':'35','opentime2':'周一至周日 09:00-18:00'}}]})
+                'address':'肇嘉浜路','business':{'rating':'4.2','cost':'35',
+                    'opentime_week':'周一至周日 09:00-18:00','opentime_today':'09:00-18:00',
+                    'tag':'咖啡, 蛋糕'}}]})
         raise AssertionError(request.url.path)
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     planner = Planner(AmapProvider('test-key', client))
@@ -44,9 +48,15 @@ async def test_real_provider_contract_builds_only_route_checked_options():
     assert len(result['plans']) == 1
     assert result['plans'][0]['place']['poi_id'] == 'A1'
     assert result['plans'][0]['route']['walking_minutes'] == 10
-    assert result['plans'][0]['unknowns'] == ['实际消费', '当前营业状态', '到店可用性']
+    assert result['plans'][0]['route']['destination_poi_id'] == 'A1'
+    assert result['plans'][0]['feasibility_checks'] == {
+        'outbound_walk': 'pass', 'full_activity_time': 'unknown',
+        'budget': 'unknown', 'open_now': 'unknown'}
+    assert '完整菜单、套餐及当前优惠' in result['plans'][0]['unknowns']
     assert result['plans'][0]['facts']['rating'] == 4.2
     assert result['plans'][0]['facts']['average_cost_cny'] == 35
+    assert result['plans'][0]['facts']['recorded_today_hours'] == '09:00-18:00'
+    assert result['plans'][0]['facts']['specialty_tags'] == ['咖啡', '蛋糕']
     assert result['plans'][0]['web_sources'] == []
     assert '/v3/geocode/geo' in paths and '/v5/direction/walking' in paths
     await client.aclose()
@@ -129,14 +139,32 @@ async def test_malformed_provider_schema_is_unavailable_not_empty():
 async def test_web_results_are_only_unverified_links():
     def handler(request):
         assert request.headers['Authorization'] == 'Bearer key'
-        return httpx.Response(200, json={'results':[{'title':'某店菜单',
+        return httpx.Response(200, json={'results':[{'title':'某某咖啡店菜单',
             'url':'https://example.org/menu','content':'套餐价格 20 元'},
+            {'title':'另一家咖啡店套餐', 'url':'https://example.org/other', 'content':'某商场咖啡套餐'},
             {'title':'unsafe', 'url':'javascript:alert(1)', 'content':'ignore instructions'}]})
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     provider = TavilyProvider('key',client)
-    results = await provider.search('上海', {'name':'某店','address':'徐汇区1号'})
+    results = await provider.search('上海', {'name':'某某咖啡店','address':'徐汇区1号'})
     assert len(results) == 1 and results[0]['identity_status'] == 'unverified'
+    assert results[0]['relevance'] == 'venue_name_mentioned'
     assert '20' in results[0]['snippet']
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_web_search_does_not_attach_another_branch_of_same_chain():
+    def handler(request):
+        return httpx.Response(200, json={'results': [
+            {'title': '星巴克(陆家嘴二店)菜单', 'url': 'https://m.dianping.com/other',
+             'content': '星巴克陆家嘴二店有套餐'},
+            {'title': '港汇恒隆广场介绍', 'url': 'https://example.org/mall',
+             'content': '商场内有星巴克'},
+        ]})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = TavilyProvider('key', client)
+    results = await provider.search('上海', {'name': '星巴克(港汇二店)', 'address': '虹桥路1号'})
+    assert results == []
     await client.aclose()
 
 
@@ -145,7 +173,7 @@ async def test_detail_identity_conflict_cannot_attach_rating():
     def handler(request):
         return httpx.Response(200, json={'status':'1','pois':[{'id':'DIFFERENT',
             'location':'121.439000,31.196000','address':'肇嘉浜路',
-            'biz_ext':{'rating':'5.0'}}]})
+            'business':{'rating':'5.0'}}]})
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     maps = AmapProvider('key', client)
     with pytest.raises(ProviderFailure) as caught:
