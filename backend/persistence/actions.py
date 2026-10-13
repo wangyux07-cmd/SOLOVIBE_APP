@@ -80,6 +80,13 @@ class ActionRepository:
             plan = next((p for p in plan_set['payload'].get('plans', []) if p['plan_id'] == plan_id), None)
             if not plan or plan.get('context_revision') != revision:
                 raise Conflict('PLAN_NOT_FOUND', '所选地点不在该版本方案中。')
+            for offer in (plan.get('public_info') or {}).get('offers', []):
+                try:
+                    expiry = datetime.fromisoformat(offer['valid_until'])
+                except (KeyError, TypeError, ValueError):
+                    raise Conflict('OFFER_STALE', '优惠证据无效，请重新生成方案。') from None
+                if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+                    raise Conflict('OFFER_STALE', '优惠已过期，请重新生成方案。')
             try:
                 observed = [datetime.fromisoformat(plan[key]['observed_at'].replace('Z', '+00:00'))
                             for key in ('place','route')]

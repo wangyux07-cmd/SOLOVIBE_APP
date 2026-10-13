@@ -9,7 +9,8 @@ test('requires review before navigation handoff and restores receipt after reloa
     route: { walking_minutes: 10, distance_meters: 750, observed_at: '2026-10-12T00:00:00Z' },
     facts: null, unknowns: ['实际消费', '当前营业状态', '到店可用性'], tradeoff: '步行约 10 分钟', web_status: 'empty', web_sources: [] };
   const base = { action_id: actionId, plan_id: plan.plan_id, kind: 'navigate', proposal_version: 1,
-    proposal_digest: 'a'.repeat(64), plan_snapshot: plan, expires_at: '2026-10-12T12:00:00Z' };
+    proposal_digest: 'a'.repeat(64), plan_snapshot: plan,
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString() };
   let latest: object | null = null;
   await page.route('**/api/v1/health', route => route.fulfill({ json: { ready: true, stage: 'stage4' } }));
   await page.route('**/api/session', route => route.fulfill({ json: { authenticated: true } }));

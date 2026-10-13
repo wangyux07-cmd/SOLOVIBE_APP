@@ -13,6 +13,32 @@ from urllib.parse import quote
 import httpx
 
 from domain.context import ContextSnapshot
+from services.offer_policy import SHANGHAI_TZ
+
+
+def schedule_evidence(facts, now=None):
+    """Amap hours are a recorded schedule; matching them is only an inference."""
+    recorded = facts.get('recorded_today_hours') if facts else None
+    result = {'kind': 'recorded_schedule' if recorded else 'unknown',
+              'recorded_today_hours': recorded, 'inference': 'unknown',
+              'open_now': 'unknown', 'observed_at': facts.get('observed_at') if facts else None}
+    if not recorded:
+        return result
+    periods = re.fullmatch(r'\s*(\d{2}):(\d{2})-(\d{2}):(\d{2})\s*', recorded)
+    if not periods:
+        return result
+    start_h, start_m, end_h, end_m = map(int, periods.groups())
+    if max(start_h, end_h) > 23 or max(start_m, end_m) > 59:
+        return result
+    local = (now or datetime.now(timezone.utc)).astimezone(SHANGHAI_TZ)
+    minute = local.hour * 60 + local.minute
+    start, end = start_h * 60 + start_m, end_h * 60 + end_m
+    if start == end:
+        return result
+    result['inference'] = ('possibly_within_recorded_hours' if
+                           (start <= minute < end if end > start else minute >= start or minute < end)
+                           else 'outside_recorded_hours')
+    return result
 
 
 class ProviderFailure(Exception):
@@ -440,7 +466,7 @@ class Planner:
             selected = selected[:3]
         return selected
 
-    async def enrich(self, city, selected):
+    async def enrich(self, city, selected, budget_cny=None):
         detail_limit = asyncio.Semaphore(3)
         async def detail_one(place):
             async with detail_limit:
@@ -468,7 +494,7 @@ class Planner:
         for place in selected:
             place['public_info'] = {'status': 'no_official_source', 'sources': [],
                                     'brand_menu_items': [], 'branch_menu_items': [],
-                                    'admission_prices': []}
+                                    'admission_prices': [], 'offers': []}
             if not self.public:
                 continue
             try:
@@ -480,6 +506,14 @@ class Planner:
                     information['brand_menu_items'] = []
                     information['branch_menu_items'] = []
                     information['admission_prices'] = []
+                    information['offers'] = []
+                now = datetime.now(timezone.utc)
+                offers = [offer for offer in information['offers']
+                          if datetime.fromisoformat(offer['valid_until']) > now]
+                for offer in offers:
+                    offer['budget_option'] = (
+                        'within_limit' if budget_cny is not None and offer['price_cny'] <= budget_cny
+                        else 'over_limit' if budget_cny is not None else 'unknown')
                 place['public_info'] = {
                     'status': information['status'],
                     'sources': [{key: record[key] for key in ('observation_id','url','observed_at','scope',
@@ -488,8 +522,14 @@ class Planner:
                     'brand_menu_items': information['brand_menu_items'],
                     'branch_menu_items': information['branch_menu_items'],
                     'admission_prices': information['admission_prices']}
+                place['public_info']['offers'] = offers
             except Exception:
                 place['public_info']['status'] = 'pipeline_unavailable'
+        if budget_cny is not None:
+            selected.sort(key=lambda place: (
+                0 if any(offer['budget_option'] == 'within_limit'
+                         for offer in place['public_info']['offers']) else
+                2 if place['public_info']['offers'] else 1))
         return selected
 
     def publish(self, snapshot: ContextSnapshot, selected, evidence):
@@ -506,6 +546,16 @@ class Planner:
             if full_status == 'unknown':
                 unknowns.append('完整活动时长')
             facts = place.get('facts')
+            public_info = place.get('public_info') or {}
+            now = datetime.now(timezone.utc)
+            offers = [offer for offer in public_info.get('offers', [])
+                      if datetime.fromisoformat(offer['valid_until']) > now]
+            if offers != public_info.get('offers', []):
+                public_info = {**public_info, 'offers': offers}
+            within_offer = any(offer['budget_option'] == 'within_limit' for offer in offers)
+            budget_option = ('known_offer_within_limit' if within_offer else
+                             'known_offer_over_limit' if offers and snapshot.constraints.budget_cny is not None
+                             else 'unknown')
             plans.append({'plan_id': f'amap:{place["poi_id"]}', 'context_revision': snapshot.revision,
                           'evidence_contract_version': 1,
                           'place': {key: place[key] for key in ('provider', 'poi_id', 'name', 'address', 'city', 'coordinate', 'category', 'source_url', 'observed_at')},
@@ -518,7 +568,9 @@ class Planner:
                                              'dwell_source': 'user_selected' if dwell is not None else 'unknown'},
                           'facts': facts, 'detail_status': place.get('detail_status'),
                           'web_status': place['web_status'], 'web_sources': place['web_sources'],
-                          'public_info': place.get('public_info'),
+                          'public_info': public_info,
+                          'hours_evidence': schedule_evidence(facts),
+                          'budget_option': budget_option,
                           'feasibility': 'outbound_route_verified_other_facts_unknown',
                           'feasibility_checks': {'outbound_walk': 'pass', 'full_activity_time': full_status,
                                                  'budget': 'unknown', 'open_now': 'unknown'},

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from domain.evidence import (ClaimStatus, EvidenceScope, SourceKind,
                              SourceObservation, ToolOutcome, VenueClaim)
+from services.offer_policy import evaluate_offer, parse_offers
 
 
 class MenuItem(BaseModel):
@@ -62,7 +63,7 @@ def clean_line(value, limit=400):
 def evidence_line(content, field_scope):
     if not content:
         return None
-    if field_scope == 'menu_item':
+    if field_scope in ('menu_item', 'offer'):
         match = next((line for line in content.splitlines() if line.startswith('### ')), '')
     else:
         match = next((line for line in content.splitlines()
@@ -175,6 +176,7 @@ class OfficialEvidenceService:
         sources = self.discover(place)
         result = {'status': 'no_official_source', 'observations': [], 'claims': [],
                   'brand_menu_items': [], 'branch_menu_items': [], 'admission_prices': []}
+        result['offers'] = []
         if not sources:
             return result
         for source in sources[:2]:
@@ -215,6 +217,8 @@ class OfficialEvidenceService:
                 result['status'] = 'success'
                 items = parse_menu(content, source['category'], place['city']) if source['field_scope'] == 'menu_item' else []
                 admissions = parse_admission(content) if source['field_scope'] == 'ticket_price' else []
+                offers = (parse_offers(content, place) if source['field_scope'] == 'offer'
+                          and scope == EvidenceScope.branch else [])
                 for item in items:
                     claim = VenueClaim(claim_id=uuid4(), observation_id=observation.observation_id,
                         field='menu_item', value=item.model_dump(), unit=None, scope=scope,
@@ -233,6 +237,18 @@ class OfficialEvidenceService:
                         'observation_id': str(observation.observation_id), 'description': admission.description,
                         'price_cny': admission.price_cny, 'source_url': url,
                         'observed_at': now.isoformat(), 'scope': scope.value})
+                for offer in offers:
+                    if not offer.starts_at <= now < offer.ends_at:
+                        continue
+                    claim = VenueClaim(claim_id=uuid4(), observation_id=observation.observation_id,
+                        field='offer', value=offer.model_dump(mode='json'), unit='CNY', scope=scope,
+                        amap_poi_id=place['poi_id'], status=ClaimStatus.verified,
+                        observed_at=now, valid_until=offer.ends_at)
+                    claim_record = claim.model_dump(mode='json')
+                    result['claims'].append(claim_record)
+                    visible = evaluate_offer(place, record, claim_record, None, now)
+                    if visible:
+                        result['offers'].append(visible)
         for field in ('brand_menu_items', 'branch_menu_items'):
             by_name = {}
             for item in result[field]:

@@ -9,8 +9,9 @@ type Message = { message_id: string; role: 'user' | 'assistant'; content: string
 type Pending = { run_id: string; status: string; error_code: string | null } | null;
 type WalkRoute = { walking_minutes: number; distance_meters: number; observed_at: string; polyline?: string[] };
 type PublicItem = { name: string; category: string; price_cny: number | null; source_url: string; observed_at: string; scope: string };
-type PublicInfo = { status: string; sources: { url: string; observed_at: string; scope: string; source_domain: string; extract_status: string; field_scope: string }[]; brand_menu_items: PublicItem[]; branch_menu_items: PublicItem[]; admission_prices: { description: string; price_cny: number; source_url: string; observed_at: string; scope: string }[] };
-type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: WalkRoute; return_route?: WalkRoute | null; time_breakdown?: { outbound_minutes: number; dwell_minutes: number | null; return_minutes: number | null; buffer_minutes: number; total_minutes: number | null; dwell_source: string }; feasibility_checks?: { full_activity_time: string }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; recorded_today_hours?: string | null; specialty_tags?: string[]; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; snippet?: string; identity_status: string }[]; public_info?: PublicInfo | null };
+type PublicOffer = { claim_id: string; description: string; price_cny: number; terms: string; applies_to: string; valid_until: string; source_url: string; observed_at: string; budget_option: string };
+type PublicInfo = { status: string; sources: { url: string; observed_at: string; scope: string; source_domain: string; extract_status: string; field_scope: string }[]; brand_menu_items: PublicItem[]; branch_menu_items: PublicItem[]; admission_prices: { description: string; price_cny: number; source_url: string; observed_at: string; scope: string }[]; offers?: PublicOffer[] };
+type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: WalkRoute; return_route?: WalkRoute | null; time_breakdown?: { outbound_minutes: number; dwell_minutes: number | null; return_minutes: number | null; buffer_minutes: number; total_minutes: number | null; dwell_source: string }; feasibility_checks?: { full_activity_time: string; budget?: string; open_now?: string }; budget_option?: string; hours_evidence?: { kind: string; recorded_today_hours: string | null; inference: string; open_now: string; observed_at: string | null }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; recorded_today_hours?: string | null; specialty_tags?: string[]; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; snippet?: string; identity_status: string }[]; public_info?: PublicInfo | null };
 type PlanSet = { plan_set_id?: string; kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[] };
 type Action = { action_id: string; plan_id: string; kind: 'save' | 'navigate'; proposal_version: number; proposal_digest: string;
   plan_snapshot: Plan; status: string; receipt: { kind?: string; url?: string; reason?: string; place_name?: string; note?: string } | null; expires_at: string; handoff_requested_at?: string | null };
@@ -56,6 +57,7 @@ export default function StageOneApp() {
   const [returnText, setReturnText] = useState('');
   const [dwellText, setDwellText] = useState('');
   const [locationNotice, setLocationNotice] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const refresh = useCallback(async () => {
     try {
@@ -71,6 +73,8 @@ export default function StageOneApp() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { const timer = window.setInterval(() => setNowMs(Date.now()), 30000);
+    return () => window.clearInterval(timer); }, []);
 
   async function reload() {
     if (!conversation) return;
@@ -207,7 +211,7 @@ export default function StageOneApp() {
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">V3-2 · 公开来源资料</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">V3-3 · 套餐与条件判断</span>
       </header>
 
       <section className="py-9">
@@ -242,7 +246,8 @@ export default function StageOneApp() {
         <h2 className="text-lg font-medium">{action.kind === 'save' ? '保存方案' : '交接步行导航'} · {action.plan_snapshot.place.name}</h2>
         <p className="mt-2 text-sm text-[#a8b6ac]">{action.plan_snapshot.place.address} · 去程约 {action.plan_snapshot.route.walking_minutes} 分钟{action.plan_snapshot.return_route ? ` · 返程约 ${action.plan_snapshot.return_route.walking_minutes} 分钟` : ''}{action.plan_snapshot.time_breakdown?.total_minutes != null ? ` · 按计划总计约 ${action.plan_snapshot.time_breakdown.total_minutes} 分钟` : ''}</p>
         {action.status === 'awaiting_confirmation' && <><p className="mt-3 text-sm text-orange-100">请核对地点。确认后会{action.kind === 'save' ? '把此方案保存到数据库' : '重新核实地点和路线，再生成高德导航链接'}。营业、费用和可进入情况仍需你自行核实。确认有效期至 {new Date(action.expires_at).toLocaleString()}。</p>
-          <div className="mt-4 flex gap-3"><button type="button" disabled={busy} onClick={() => void decideAction(true)} className="rounded-lg bg-[#bdd7a2] px-4 py-2 text-sm text-[#182416] disabled:opacity-40">确认</button><button type="button" disabled={busy} onClick={() => void decideAction(false)} className="rounded-lg border border-white/20 px-4 py-2 text-sm disabled:opacity-40">取消</button></div></>}
+          {(hasExpiredOffer(action.plan_snapshot.public_info, nowMs) || Date.parse(action.expires_at) <= nowMs) && <p className="mt-2 text-xs text-orange-100">提案或套餐已过期，请取消并重新生成方案。</p>}
+          <div className="mt-4 flex gap-3"><button type="button" disabled={busy || hasExpiredOffer(action.plan_snapshot.public_info, nowMs) || Date.parse(action.expires_at) <= nowMs} onClick={() => void decideAction(true)} className="rounded-lg bg-[#bdd7a2] px-4 py-2 text-sm text-[#182416] disabled:opacity-40">确认</button><button type="button" disabled={busy} onClick={() => void decideAction(false)} className="rounded-lg border border-white/20 px-4 py-2 text-sm disabled:opacity-40">取消</button></div></>}
         {(action.status === 'authorized' || action.status === 'claimed') && <p className="mt-3 text-sm text-orange-100">动作已确认但尚无完成回执。<button type="button" onClick={() => void recoverAction()} disabled={busy} className="ml-2 underline">恢复执行</button></p>}
         {action.status === 'completed' && action.receipt?.kind === 'plan_saved' && <p className="mt-3 text-sm text-[#bdd7a2]">方案已保存。</p>}
         {action.status === 'completed' && action.receipt?.kind === 'navigation_handoff_ready' && action.receipt.url && <p className="mt-3 text-sm"><a href={action.receipt.url} target="_blank" rel="noopener noreferrer" onClick={() => void recordHandoff()} className="text-[#bdd7a2] underline">打开高德步行导航</a><span className="ml-2 text-[#a8b6ac]">{action.handoff_requested_at ? '已请求打开导航；无法确认高德是否接收。' : '链接已生成，尚未代你出发。'}</span></p>}
@@ -272,25 +277,45 @@ export default function StageOneApp() {
           <p className="mt-2 text-xs text-[#a8b6ac]">高德地点资料：评分 {plan.facts?.rating ?? '未知'} · 参考人均 {plan.facts?.average_cost_cny == null ? '未知' : `${plan.facts.average_cost_cny} 元`}</p>
           {plan.facts?.recorded_hours && <p className="mt-1 text-xs text-[#a8b6ac]">登记营业时间：{plan.facts.recorded_hours}（非实时）</p>}
           {plan.facts?.recorded_today_hours && <p className="mt-1 text-xs text-[#a8b6ac]">高德所列今日时段：{plan.facts.recorded_today_hours}（不代表此刻营业）</p>}
+          {plan.hours_evidence?.inference === 'possibly_within_recorded_hours' && <p className="mt-1 text-xs text-[#a8b6ac]">生成方案时按登记时段推测可能营业；实时营业仍未知。</p>}
+          {plan.hours_evidence?.inference === 'outside_recorded_hours' && <p className="mt-1 text-xs text-[#a8b6ac]">生成方案时按登记时段推测不在营业时段；实时状态仍需核实。</p>}
+          {hasActiveOffer(plan.public_info, nowMs) && plan.budget_option === 'known_offer_within_limit' && <p className="mt-1 text-xs text-[#bdd7a2]">有来源套餐价格不超过预算；这不代表整次活动总消费可控。</p>}
+          {hasActiveOffer(plan.public_info, nowMs) && plan.budget_option === 'known_offer_over_limit' && <p className="mt-1 text-xs text-orange-100">已核实的套餐价格超过预算；其他消费选项仍未知。</p>}
           {!!plan.facts?.specialty_tags?.length && <p className="mt-1 text-xs leading-5 text-[#a8b6ac]">高德特色标签：{plan.facts.specialty_tags.join('、')}（并非实时菜单或优惠）</p>}
           {plan.facts?.observed_at && <p className="mt-1 text-xs text-[#84938a]">地点资料查询于 {new Date(plan.facts.observed_at).toLocaleString()}</p>}
-          <PublicEvidencePanel info={plan.public_info} />
+          <PublicEvidencePanel info={plan.public_info} nowMs={nowMs} />
           <p className="mt-2 text-xs leading-6 text-[#a8b6ac]">{plan.tradeoff}</p>
           <p className="mt-2 text-xs text-orange-100">待核实：{plan.unknowns.join('、')}</p>
           <a className="mt-4 inline-block text-sm text-[#bdd7a2] underline" href={plan.place.source_url} target="_blank" rel="noopener noreferrer">在高德查看地点</a>
-          {conversation.plan_set?.plan_set_id && <div className="mt-4 flex gap-2"><button type="button" disabled={busy || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'save')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存此方案</button><button type="button" disabled={busy || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'navigate')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">准备步行导航</button></div>}
+          {hasExpiredOffer(plan.public_info, nowMs) && <p className="mt-2 text-xs text-orange-100">套餐证据已过期，请重新生成方案后再确认。</p>}
+          {conversation.plan_set?.plan_set_id && <div className="mt-4 flex gap-2"><button type="button" disabled={busy || hasExpiredOffer(plan.public_info, nowMs) || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'save')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存此方案</button><button type="button" disabled={busy || hasExpiredOffer(plan.public_info, nowMs) || action?.status === 'awaiting_confirmation' || action?.status === 'authorized' || action?.status === 'claimed'} onClick={() => void prepareAction(plan,'navigate')} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">准备步行导航</button></div>}
           {plan.web_sources.length > 0 && <div className="mt-4 border-t border-white/10 pt-3"><p className="text-xs text-[#a8b6ac]">网页线索 · 提及地点名称，尚未核实是否同一分店；内容不作为套餐或营业承诺</p><ul className="mt-2 space-y-2">{plan.web_sources.filter(source => source.url.startsWith('https://')).map(source => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#bdd7a2] underline">{source.title || source.url}</a>{source.snippet && <p className="mt-1 line-clamp-3 text-xs text-[#a8b6ac]">{source.snippet}</p>}</li>)}</ul></div>}
           {plan.web_status !== 'results_unverified' && <p className="mt-3 text-xs text-[#a8b6ac]">网页资料：{plan.web_status === 'not_configured' ? '未配置搜索服务' : '本次未取得可展示结果'}</p>}
         </article>)}</div>
       </section> : null}
-      <footer className="mt-10 text-xs text-[#84938a]">V3-2 开发预览 · 官网品牌商品仅作示例；分店价格、在售、营业与优惠须有各自来源。出发前请核实。</footer>
+      <footer className="mt-10 text-xs text-[#84938a]">V3-3 开发预览 · 套餐须有门店、条款和期限；参考人均与登记时段不代表实际消费或实时营业。出发前请核实。</footer>
     </div>
   </main>;
 }
 
-function PublicEvidencePanel({ info }: { info?: PublicInfo | null }) {
-  if (!info || (!info.sources.length && !info.brand_menu_items.length && !info.branch_menu_items.length)) return null;
+function hasActiveOffer(info: PublicInfo | null | undefined, nowMs: number) {
+  return !!info?.offers?.some(offer => Date.parse(offer.valid_until) > nowMs);
+}
+
+function hasExpiredOffer(info: PublicInfo | null | undefined, nowMs: number) {
+  return !!info?.offers?.some(offer => !(Date.parse(offer.valid_until) > nowMs));
+}
+
+function PublicEvidencePanel({ info, nowMs }: { info?: PublicInfo | null; nowMs: number }) {
+  if (!info || (!info.sources.length && !info.brand_menu_items.length && !info.branch_menu_items.length && !info.offers?.length)) return null;
+  const activeOffers = info.offers?.filter(offer => Date.parse(offer.valid_until) > nowMs) ?? [];
   return <section className="mt-4 rounded-lg border border-[#bdd7a2]/20 p-3 text-xs" aria-label="公开来源资料">
+    {!!activeOffers.length && <div><p className="font-medium text-[#bdd7a2]">本地点有条件套餐 · 请按条款核对</p>
+      <ul className="mt-2 space-y-2">{activeOffers.map(offer => <li key={offer.claim_id}>
+        <span>{offer.description} · 来源价 {offer.price_cny} 元</span>
+        <span className="block text-[#a8b6ac]">适用：{offer.applies_to}；条件：{offer.terms}；有效至 {new Date(offer.valid_until).toLocaleString()}</span>
+        <a href={offer.source_url} target="_blank" rel="noopener noreferrer" className="text-[#bdd7a2] underline">查看官方条款</a>
+      </li>)}</ul></div>}
     {!!info.brand_menu_items.length && <div><p className="font-medium text-[#bdd7a2]">品牌菜单示例 · 未证实本分店有售或现价</p>
       <ul className="mt-2 space-y-1">{info.brand_menu_items.slice(0, 5).map(item => <li key={`${item.source_url}-${item.name}`}>{item.name} · 价格未知</li>)}</ul></div>}
     {!!info.branch_menu_items.length && <div className="mt-2"><p className="font-medium text-[#bdd7a2]">本分店菜单资料 · 来源已匹配门店</p>

@@ -4,9 +4,9 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: redesign implementation in progress.** Stages 0–4 and V3-0/V3-1 are implemented on `Refactor`. V3-2 now extracts bounded official-page content into source-bound claims and shows brand menu examples in the UI. The fixed pilot has **0 of the 3 required branch-level menus or price lists**, so V3-2's branch coverage acceptance remains open. Live opening status, offers, and availability are not implemented. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the delivery gates.
+> **Project status: redesign implementation in progress.** Stages 0–4 and V3-0/V3-1 are implemented on `Refactor`. V3-2 extracts official-page content into source-bound claims; its branch coverage acceptance remains **0/3**. V3-3 adds branch-offer parsing, expiry-aware display, option-budget hints, recorded-hours inference, and offer rechecks before confirmed actions. No fixed pilot currently has a qualifying live offer (**0/1**), so the V3-3 external-source gate remains open. Live opening status and availability are not implemented. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the delivery gates.
 
-V3-0 fixed a 12-venue Shanghai pilot cohort and added typed source/claim contracts. V3-1 supports user-initiated browser location, independent round-trip routes, and a full-trip time check. V3-2 has verified Tavily Extract against a Starbucks China official menu and stored scoped observations/claims in PostgreSQL; the page identifies these as brand examples with no branch availability or price assertion. See the [V3-0 record](docs/V3_STAGE0_EVIDENCE_2026-10-13.md), [V3-1 report](docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md), and [V3-2 report](docs/V3_STAGE2_PUBLIC_SOURCES_2026-10-13.md).
+V3-0 fixed a 12-venue Shanghai pilot cohort and added typed source/claim contracts. V3-1 supports user-initiated browser location, independent round-trip routes, and a full-trip time check. V3-2 verified Tavily Extract against a Starbucks China official menu and stored scoped observations/claims in PostgreSQL. V3-3 consumes only complete, current, branch-matched offers; without such an offer, cost and live opening status remain unknown. See the [V3-0 record](docs/V3_STAGE0_EVIDENCE_2026-10-13.md), [V3-1 report](docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md), [V3-2 report](docs/V3_STAGE2_PUBLIC_SOURCES_2026-10-13.md), and [V3-3 report](docs/V3_STAGE3_OFFERS_2026-10-13.md).
 
 ## Why SoloVibe?
 
@@ -144,6 +144,7 @@ The following documents are currently written in Chinese and are linked from the
 - [V3-0 evidence contract and real pilot baseline](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE0_EVIDENCE_2026-10-13.md)
 - [V3-1 browser location, round trip, and full-time verification](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md)
 - [V3-2 public official-source pipeline and pilot coverage](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE2_PUBLIC_SOURCES_2026-10-13.md)
+- [V3-3 offers, schedule inference, budget decisions, and coverage](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE3_OFFERS_2026-10-13.md)
 - [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
 - [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
 - [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)

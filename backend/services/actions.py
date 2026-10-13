@@ -6,11 +6,34 @@ from domain.errors import AppError
 from services.planning import ProviderFailure, coordinate
 
 
-async def revalidate(action, maps):
+async def revalidate(action, maps, public=None):
     if action['expires_at'] <= datetime.now(timezone.utc):
         return {'valid': False, 'reason': 'expired'}
     plan = action['plan_snapshot']
     context = action['context_snapshot']['constraints']
+    advertised = (plan.get('public_info') or {}).get('offers') or []
+    if advertised:
+        if not public:
+            return {'valid': False, 'reason': 'offer_source_unavailable'}
+        try:
+            fresh = await public.collect(plan['place'])
+        except Exception:
+            return {'valid': False, 'reason': 'offer_source_unavailable'}
+        if not isinstance(fresh, dict) or fresh.get('status') != 'success':
+            return {'valid': False, 'reason': 'offer_source_unavailable'}
+        now = datetime.now(timezone.utc)
+        def identity(offer):
+            return (offer['description'], offer['price_cny'], offer['terms'],
+                    offer['applies_to'], offer['valid_until'], offer['source_url'])
+        try:
+            current = {identity(offer) for offer in fresh['offers']
+                       if datetime.fromisoformat(offer['valid_until']) > now}
+            if any(datetime.fromisoformat(offer['valid_until']) <= now for offer in advertised):
+                return {'valid': False, 'reason': 'offer_expired'}
+            if any(identity(offer) not in current for offer in advertised):
+                return {'valid': False, 'reason': 'offer_changed'}
+        except (KeyError, TypeError, ValueError):
+            return {'valid': False, 'reason': 'offer_invalid'}
     if action['kind'] == 'save':
         return {'valid': True, 'reason': None}
     try:
