@@ -1,0 +1,8 @@
+[
+  {"id":"shanghai_xujiahui_dinner", "expected":"passed", "city":"上海", "location_text":"徐家汇地铁站", "budget_cny":180, "available_minutes":240, "max_walk_minutes":90, "departure_time_local":"17:00", "meal_requirement":"dinner", "interests":["公园","博物馆"]},
+  {"id":"shanghai_people_square_dinner", "expected":"passed", "city":"上海", "location_text":"人民广场地铁站", "budget_cny":150, "available_minutes":240, "max_walk_minutes":90, "departure_time_local":"17:00", "meal_requirement":"dinner", "interests":["公园","博物馆"]},
+  {"id":"shanghai_jingan_dinner", "expected":"passed", "city":"上海", "location_text":"静安寺地铁站", "budget_cny":200, "available_minutes":240, "max_walk_minutes":90, "departure_time_local":"17:00", "meal_requirement":"dinner", "interests":["公园","书店"]},
+  {"id":"shanghai_xujiahui_no_meal", "expected":"passed", "city":"上海", "location_text":"徐家汇地铁站", "budget_cny":100, "available_minutes":180, "max_walk_minutes":80, "departure_time_local":"14:00", "interests":["公园","博物馆"]},
+  {"id":"shanghai_people_square_short_walk", "expected":"no_itinerary", "city":"上海", "location_text":"人民广场地铁站", "budget_cny":120, "available_minutes":150, "max_walk_minutes":35, "departure_time_local":"17:00", "meal_requirement":"dinner", "interests":["公园"]},
+  {"id":"shanghai_jingan_late_dinner", "expected":"no_itinerary", "city":"上海", "location_text":"静安寺地铁站", "budget_cny":160, "available_minutes":180, "max_walk_minutes":70, "departure_time_local":"21:30", "meal_requirement":"dinner", "interests":["公园"]}
+]

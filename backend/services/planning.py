@@ -111,6 +111,13 @@ def matches_specific_interest(place, interests):
     return True
 
 
+def is_restaurant(place):
+    category = scalar(place.get('category'))
+    name = scalar(place.get('name'))
+    return ('餐饮服务' in category or any(word in category for word in ('中餐厅', '西餐厅', '餐厅', '小吃'))
+            or any(word in name for word in ('餐厅', '饭店', '食堂', '面馆', '小吃店')))
+
+
 class AmapProvider:
     BASE = 'https://restapi.amap.com'
 
@@ -376,6 +383,8 @@ class Planner:
         plans = prior.get('plans') or []
         if not plans:
             return None
+        if any(plan.get('itinerary') for plan in plans):
+            return None  # Every leg and its order must be recomputed after an edit.
         return_changed = old.return_location_text != new.return_location_text
         for plan in plans:
             if (not evidence_fresh(plan.get('place', {}).get('observed_at'), minutes=30)
@@ -493,7 +502,9 @@ class Planner:
                 return_destination, return_error = None, exc.category
         else:
             return_destination = origin
-        keywords = [value.strip()[:40] for value in c.interests if value.strip()][:3] or ['公园', '博物馆', '咖啡馆']
+        keywords = [value.strip()[:40] for value in c.interests if value.strip()][:2] or ['公园', '博物馆']
+        if not any(word in keyword for keyword in keywords for word in ('餐厅', '美食', '晚饭', '晚餐')):
+            keywords.append('餐厅')
         results = await asyncio.gather(*(self.maps.search(c.city, origin['coordinate'], word) for word in keywords),
                                        return_exceptions=True)
         errors, places = [], []
@@ -502,7 +513,7 @@ class Planner:
             if isinstance(result, Exception):
                 errors.append(result.category if isinstance(result, ProviderFailure) else 'provider_error')
                 continue
-            for item in result:
+            for item in result[:3]:
                 if item['poi_id'] not in seen:
                     seen.add(item['poi_id'])
                     places.append(item)
@@ -514,11 +525,12 @@ class Planner:
                 if isinstance(result, Exception):
                     errors.append(result.category if isinstance(result, ProviderFailure) else 'provider_error')
                 else:
-                    for item in result:
+                    for item in result[:3]:
                         if item['poi_id'] not in seen:
                             seen.add(item['poi_id'])
                             places.append(item)
-        places = [place for place in places if matches_specific_interest(place, c.interests)][:6]
+        places = [place for place in places if is_restaurant(place) or
+                  matches_specific_interest(place, c.interests)][:9]
         semaphore = asyncio.Semaphore(2)
         async def route(place):
             async with semaphore:
@@ -545,7 +557,7 @@ class Planner:
                 'origin': origin, 'return_destination': return_destination,
                 'return_error': return_error, 'places': places, 'errors': errors}
 
-    def verify(self, snapshot: ContextSnapshot, evidence: dict):
+    def verify(self, snapshot: ContextSnapshot, evidence: dict, limit=3):
         c = snapshot.constraints
         accepted = []
         for place in evidence['places']:
@@ -578,11 +590,15 @@ class Planner:
                 continue
             selected.append(place)
             seen_categories.add(category)
-            if len(selected) == 3:
+            if len(selected) == limit:
                 break
-        if len(selected) < 3:
+        if len(selected) < limit:
             selected.extend(item for item in accepted if item not in selected)
-            selected = selected[:3]
+            selected = selected[:limit]
+        if c.meal_requirement == 'dinner' and selected:
+            meal = next((item for item in accepted if is_restaurant(item)), None)
+            if meal and meal not in selected:
+                selected[-1] = meal
         return selected
 
     async def enrich(self, city, selected, budget_cny=None):
@@ -684,6 +700,28 @@ class Planner:
                          for offer in place['public_info']['offers']) else
                 2 if place['public_info']['offers'] else 1))
         return selected
+
+    async def enrich_basic(self, selected):
+        """For route itineraries, fetch only exact-POI Amap facts; no menu/offer crawl."""
+        semaphore = asyncio.Semaphore(3)
+        async def one(place):
+            async with semaphore:
+                try:
+                    place['facts'] = await self.maps.detail(place)
+                    place['detail_status'] = 'matched'
+                except ProviderFailure as exc:
+                    place['facts'], place['detail_status'] = None, exc.category
+            place['web_status'], place['web_sources'] = 'not_requested', []
+            place['public_info'] = {'status': 'not_requested', 'sources': [],
+                'brand_menu_items': [], 'branch_menu_items': [],
+                'admission_prices': [], 'offers': []}
+            place['live_info'] = None
+        await asyncio.gather(*(one(place) for place in selected))
+        return [place for place in selected if place['detail_status'] != 'identity_conflict']
+
+    async def build_itinerary(self, snapshot, selected, evidence, plan_set_id=None):
+        from services.itinerary import build_one
+        return await build_one(self, snapshot, selected, evidence, plan_set_id)
 
     def publish(self, snapshot: ContextSnapshot, selected, evidence, plan_set_id=None):
         plans = []

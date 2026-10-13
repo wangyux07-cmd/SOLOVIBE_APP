@@ -21,6 +21,8 @@ class Constraints(BaseModel):
     budget_cny: float | None = Field(default=None, ge=0, le=100000)
     available_minutes: int | None = Field(default=None, ge=1, le=1440)
     max_walk_minutes: int | None = Field(default=None, ge=0, le=360)
+    departure_time_local: str | None = Field(default=None, pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    meal_requirement: Literal["dinner"] | None = None
     energy: Literal["low", "medium", "high"] | None = None
     interests: list[str] = Field(default_factory=list, max_length=12)
     exclusions: list[str] = Field(default_factory=list, max_length=12)
@@ -42,7 +44,7 @@ class ContextSnapshot(BaseModel):
 
 class FieldChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    field: Literal["city", "location_text", "return_location_text", "desired_dwell_minutes", "budget_cny", "available_minutes", "max_walk_minutes", "energy", "interests", "exclusions"]
+    field: Literal["city", "location_text", "return_location_text", "desired_dwell_minutes", "budget_cny", "available_minutes", "max_walk_minutes", "departure_time_local", "meal_requirement", "energy", "interests", "exclusions"]
     value: Any
     quote: str = Field(min_length=1, max_length=1000)
     basis: Literal["explicit", "inferred"] = "explicit"
@@ -122,6 +124,7 @@ DIRECT_EDIT_LABELS = {
     'desired_dwell_minutes': '计划停留分钟数', 'budget_cny': '预算元数',
     'available_minutes': '可用分钟数', 'max_walk_minutes': '步行分钟上限',
     'interests': '偏好', 'exclusions': '避开',
+    'departure_time_local': '出发时间', 'meal_requirement': '用餐安排',
 }
 
 
@@ -161,6 +164,8 @@ def context_summary(snapshot: ContextSnapshot) -> str:
     if c.budget_cny is not None: parts.append(f"预算：{c.budget_cny:g} 元")
     if c.available_minutes is not None: parts.append(f"可用时间：{c.available_minutes} 分钟")
     if c.max_walk_minutes is not None: parts.append(f"最多步行：{c.max_walk_minutes} 分钟")
+    if c.departure_time_local: parts.append(f"计划出发时刻：{c.departure_time_local}（当地时间）")
+    if c.meal_requirement == 'dinner': parts.append('行程必须包含晚餐')
     if c.energy: parts.append(f"精力：{dict(low='偏低', medium='一般', high='充足')[c.energy]}")
     if c.interests: parts.append("偏好：" + "、".join(c.interests))
     if c.exclusions: parts.append("避开：" + "、".join(c.exclusions))

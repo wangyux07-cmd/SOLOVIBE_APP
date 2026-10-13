@@ -120,6 +120,11 @@ class ActionRepository:
             try:
                 observed = [datetime.fromisoformat(plan[key]['observed_at'].replace('Z', '+00:00'))
                             for key in ('place','route')]
+                if plan.get('itinerary'):
+                    observed.extend(datetime.fromisoformat(stop['place']['observed_at'].replace('Z', '+00:00'))
+                                    for stop in plan['itinerary']['stops'])
+                    observed.extend(datetime.fromisoformat(leg['route']['observed_at'].replace('Z', '+00:00'))
+                                    for leg in plan['itinerary']['legs'])
             except (KeyError, TypeError, ValueError):
                 raise Conflict('PLAN_STALE', '方案缺少可验证的时间信息，请重新生成。') from None
             if any(value.tzinfo is None or datetime.now(timezone.utc) - value > timedelta(minutes=30)

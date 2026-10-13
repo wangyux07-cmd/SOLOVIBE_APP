@@ -19,7 +19,7 @@ test('renders persisted route evidence and leaves unverified business facts unkn
     }] },
   } }));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '可考虑的地点' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '推荐游览顺序' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '徐家汇公园' })).toBeVisible();
   await expect(page.getByText('待核实：实际消费、当前营业状态、到店可用性、完整菜单、套餐及当前优惠')).toBeVisible();
   await expect(page.getByText('高德地点资料：评分 4.2 · 参考人均 35 元')).toBeVisible();

@@ -1,11 +1,12 @@
 """Stage 1 StateGraph: HTTP requests traverse this compiled graph."""
 import time
+import re
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from domain.context import ContextSnapshot, Understanding, make_reply, apply_patch
+from domain.context import ContextSnapshot, Understanding, FieldChange, make_reply, apply_patch
 from domain.errors import AppError
 from services.context_builder import ContextBuilder
 from services.planning import create_planner
@@ -89,6 +90,17 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
                                                     state['input_event']['content'],
                                                     rolling_summary=state['rolling_summary'],
                                                     max_input_tokens=state['context_budget']['input_limit'])
+            message = state['input_event']['content']
+            if not any(change.field == 'meal_requirement' for change in proposal.changes):
+                cancel = re.search(r'不吃晚饭|不吃晚餐|取消晚饭|取消晚餐|不要安排晚饭|不要安排晚餐', message)
+                require = re.search(r'晚饭|晚餐', message) if not cancel else None
+                matched = cancel or require
+                desired = None if cancel else 'dinner'
+                current = ContextSnapshot.model_validate(state['context_snapshot']).constraints.meal_requirement
+                if matched and desired != current:
+                    proposal = proposal.model_copy(update={'changes': [*proposal.changes,
+                        FieldChange(field='meal_requirement', value=desired,
+                                    quote=matched.group(), basis='explicit')]})
         meta['context_budget'] = state['context_budget']
         # Reject unsupported patches before checkpointing them so retry re-extracts.
         apply_patch(ContextSnapshot.model_validate(state['context_snapshot']),proposal,
@@ -133,23 +145,34 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
 
     async def verify_feasibility(state):
         snapshot = ContextSnapshot.model_validate(state['context_snapshot'])
-        vetted = planning_service().verify(snapshot, state['evidence'])
+        service = planning_service()
+        vetted = (service.verify(snapshot, state['evidence'], limit=6)
+                  if hasattr(service, 'build_itinerary') else service.verify(snapshot, state['evidence']))
         if state['evidence'].get('reuse_mode') and len(vetted) < 2:
             fresh = await planning_service().collect(snapshot)
             fresh['dependency_trace'] = {**state['evidence']['dependency_trace'],
                                          'retrieval': 'fresh_after_reuse_shortfall'}
-            return {'evidence': fresh, 'vetted_places': planning_service().verify(snapshot, fresh)}
+            return {'evidence': fresh, 'vetted_places': (service.verify(snapshot, fresh, limit=6)
+                    if hasattr(service, 'build_itinerary') else service.verify(snapshot, fresh))}
         return {'vetted_places': vetted}
 
     async def enrich_sources(state):
         snapshot = ContextSnapshot.model_validate(state['context_snapshot'])
-        return {'vetted_places':await planning_service().enrich(snapshot.constraints.city,state['vetted_places'],
-                                                                 snapshot.constraints.budget_cny)}
+        service = planning_service()
+        enriched = (await service.enrich_basic(state['vetted_places'])
+                    if hasattr(service, 'build_itinerary') else
+                    await service.enrich(snapshot.constraints.city, state['vetted_places'],
+                                         snapshot.constraints.budget_cny))
+        return {'vetted_places': enriched}
 
     async def publish_plans(state):
-        reply = planning_service().publish(ContextSnapshot.model_validate(state['context_snapshot']),
-                                            state['vetted_places'], state['evidence'],
-                                            plan_set_id=state['run_id'])
+        service = planning_service()
+        current = ContextSnapshot.model_validate(state['context_snapshot'])
+        reply = (await service.build_itinerary(current, state['vetted_places'],
+                                               state['evidence'], plan_set_id=state['run_id'])
+                 if hasattr(service, 'build_itinerary') else
+                 service.publish(current, state['vetted_places'], state['evidence'],
+                                 plan_set_id=state['run_id']))
         reply['replanning'] = state['evidence'].get('dependency_trace', {})
         return {'reply': reply}
 
@@ -205,7 +228,8 @@ def build_graph(repository, model, checkpointer=None, context_builder=None, plan
         row = await repository.actions.get(state['owner_id'], state['action_id'])
         if row['status'] == 'completed':
             return {'action_receipt': row['receipt']}
-        receipt = ({'kind': 'plan_saved', 'place_name': row['plan_snapshot']['place']['name']}
+        receipt = ({'kind': 'plan_saved', 'place_name': ('多站行程' if row['plan_snapshot'].get('itinerary')
+                                                        else row['plan_snapshot']['place']['name'])}
                    if row['kind'] == 'save' else navigation_receipt(row, state['action_evidence']))
         return {'action_receipt': receipt}
 

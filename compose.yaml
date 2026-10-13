@@ -1,0 +1,28 @@
+name: solovibe
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+    env_file:
+      - backend/.env
+    environment:
+      APP_ENV: development
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=5)"]
+      interval: 20s
+      timeout: 6s
+      retries: 5
+      start_period: 60s
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

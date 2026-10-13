@@ -2,11 +2,11 @@
 
 **A context-aware companion agent for solo city outings.**
 
-SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
+SoloVibe helps people plan a solo city outing. It combines their location, available time, walking limit, budget, interests, and optional dinner requirement into **one ordered 2–3 stop walking itinerary**. Every stop is an Amap POI and every leg is backed by an Amap route. After confirmation, the user can save the itinerary or open a separate Amap navigation link for each leg.
 
-> **Project status: release engineering in progress.** Stages 0–4 and V3-0/V3-1 are implemented on `Refactor`. V3-2 extracts official-page content into source-bound claims; its branch coverage acceptance remains **0/3**. V3-3 adds branch-offer parsing, expiry-aware display, option-budget hints, recorded-hours inference, and offer rechecks before confirmed actions. No fixed pilot currently has a qualifying live offer (**0/1**), so the V3-3 external-source gate remains open. V3-4 has an opt-in, read-only merchant integration contract; no merchant authorization is configured and its real-branch acceptance remains **0/1**. V3-5 has passed real database and browser checks. V3-6 adds lifecycle and CI controls; the independent database backup/restore rehearsal and GitHub CI passed, while production deployment remains open. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the delivery gates.
+> **Project status: multi-stop itinerary prototype verified locally; public deployment pending.** LangGraph, PostgreSQL state, real Amap POI/route calls, direct edits, confirmation, deletion, and recovery are implemented. Real DeepSeek/Amap/database and browser runs have produced a three-stop dinner itinerary with four navigation legs. Docker configuration is present; image builds and a public Vercel/backend deployment still require validation. Restaurant reservation is **not implemented**: no authorized booking API or confirmed reservation receipt is available. Menu, offer, and live merchant integrations from earlier V3 work are retained as historical, optional capabilities and are no longer release gates for this narrower product.
 
-V3-0 fixed a 12-venue Shanghai pilot cohort and added typed source/claim contracts. V3-1 supports user-initiated browser location, independent round-trip routes, and a full-trip time check. V3-2 verified Tavily Extract against a Starbucks China official menu and stored scoped observations/claims in PostgreSQL. V3-3 consumes only complete, current, branch-matched offers; without such an offer, cost and live opening status remain unknown. V3-4 displays branch live status only from a configured, authorized merchant bridge with matching identity and a short validity window. V3-5 gives the user direct versioned edits, targeted POI rechecks, server-backed recovery state, and clearly labeled self-reported feedback. See the [V3-0 record](docs/V3_STAGE0_EVIDENCE_2026-10-13.md), [V3-1 report](docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md), [V3-2 report](docs/V3_STAGE2_PUBLIC_SOURCES_2026-10-13.md), [V3-3 report](docs/V3_STAGE3_OFFERS_2026-10-13.md), [V3-4 report](docs/V3_STAGE4_AUTHORIZED_MERCHANT_2026-10-13.md), and [V3-5 report](docs/V3_STAGE5_ADJUSTMENT_RECOVERY_2026-10-13.md).
+The planner searches bounded attractions and restaurants, rejects identity conflicts, queries directed walking legs, and enumerates feasible orders within the candidate set. It first maximizes the number of feasible stops (up to three), then minimizes verified walking time. If dinner is required, a restaurant is the final stop within the planned 17:00–20:30 arrival window. This is **candidate-set optimization**, not a claim of a city-wide optimum, live restaurant availability, or a completed booking. The [multi-stop test plan](docs/MULTI_STOP_TEST_EVALUATION_PLAN.md) defines the measurable acceptance criteria.
 
 ## Why SoloVibe?
 
@@ -18,9 +18,9 @@ For example:
 
 > “I'm near Xuhui in Shanghai. I'm a little tired, have one hour and a budget of RMB 50, and don't want to walk far.”
 
-The intended experience is to record those constraints, clarify anything essential, retrieve real place and route information, and offer at most two or three options. Each option should explain why it fits, its estimated cost and duration, its sources, and any unknowns. If the user changes their budget, subsequent planning should use the new value. Saving a plan or handing off to navigation requires confirmation of that action.
+The intended experience is to record those constraints, clarify anything essential, retrieve real places and directed routes, and propose one ordered itinerary. Changing a constraint generates a new version. Saving or handing off navigation requires explicit confirmation.
 
-**The current implementation generates conditional place options only after a real provider lookup. Saving a selected option or preparing a walking-navigation link requires a separate confirmation. Cost, opening hours, and availability stay unknown unless separately verified.**
+**The current implementation never substitutes a straight line for a missing route. Amap ratings, average cost and recorded hours may be absent, and none establishes current opening or a reservation.**
 
 ## Planned V1 Capabilities
 
@@ -28,18 +28,18 @@ The intended experience is to record those constraints, clarify anything essenti
 | --- | --- |
 | Context understanding | Capture location, energy, budget, time, preferences, and exclusions; preserve user corrections across turns |
 | External information retrieval | Use map services such as Amap for places and routes, with web search for supporting venue and activity information |
-| Activity options | Present a small set of comparable options with timing, cost, route information, fit, and sources |
+| Ordered itinerary | Present one 2–3 stop route with per-leg Amap evidence, estimated stop times, and explicit unknowns |
 | Conversation continuity | Preserve recent messages and structured constraints; summarize older history when the input budget requires it |
-| Confirmed actions | Save a plan, hand off to navigation, or provide an official booking entry point after the user confirms the action |
+| Confirmed actions | Save the itinerary or provide one Amap navigation link per leg after confirmation; restaurant booking awaits an authorized provider |
 | Plan adjustments | Update affected parts of the plan when the user's constraints or situation change |
 
-Ratings, offers, menus, and opening hours depend on actual provider coverage. Missing information must remain unknown, and failed calls must be reported as failures. The model must not invent a successful lookup. Automatic payments, general-purpose automated bookings, and continuous background location tracking are outside the initial scope.
+Ratings and recorded hours depend on actual provider coverage. Missing information remains unknown; failed calls never become successful lookups. Automatic payments, unsupported restaurant bookings, and continuous background location tracking are outside the current implementation.
 
 ## Architecture
 
 The frontend uses **React, TypeScript, and Vite**, with **FastAPI** on the backend. **LangGraph** is the workflow orchestrator, **Supabase / PostgreSQL** persists business state and native checkpoints, and model calls go through a dedicated adapter.
 
-The diagram below shows the **target V1 workflow**, not an end-to-end flow already running in the application:
+The diagram shows the current main path:
 
 ```mermaid
 flowchart TD
@@ -50,11 +50,11 @@ flowchart TD
     E --> F{Enough information?}
     F -->|Clarification needed| G[Ask an essential question]
     G --> A
-    F -->|Ready to plan| H[Map and web search tools]
-    H --> I[Validate constraints and build options]
-    I --> J[Present options and sources]
-    J --> K[User selects and confirms an action]
-    K --> L[Save plan or hand off to an official service]
+    F -->|Ready to plan| H[Amap POI and directed walking routes]
+    H --> I[Validate constraints and choose ordered stops]
+    I --> J[Present one itinerary and per-leg evidence]
+    J --> K[User confirms an action]
+    K --> L[Save itinerary or produce per-leg Amap links]
     L --> M[Record the actual outcome]
 ```
 
@@ -76,7 +76,7 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 | 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Implemented; live compaction, raw-message retention, newer correction priority, and cross-process summary recovery verified |
 | 3 · Real activity options | Amap POI, detail and walking route, Tavily links, bounded screening, and persisted options | Implemented; real model/database/map/search/browser flow verified |
 | 4 · Confirmation and actions | Version-bound proposal, durable LangGraph interrupt, atomic confirmation, plan saving, navigation handoff, recovery | Implemented; real database/map and browser flows verified. Merchant booking entry points remain unavailable without verified provider data |
-| 5 · Integration and release | External-data evidence, local adjustment, recovery, lifecycle, and deployment | V3-5 passed real database/browser checks; V3-6 lifecycle, CI, and independent backup/restore drill passed. Production deployment and external merchant coverage remain open. |
+| 5 · Integration and release | Adjustment, recovery, lifecycle, multi-stop itinerary, and deployment | Real multi-stop model/map/database/browser checks and independent backup/restore drill passed locally. Docker images and public deployment are pending validation; restaurant booking remains unavailable. |
 
 **Branches:** `main` retains the historical prototype. The active redesign is on [`Refactor`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/Refactor). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
 
@@ -112,6 +112,15 @@ powershell -NoProfile -File scripts/dev.ps1 -Service frontend
 
 The frontend development server proxies `/api` requests to the local backend. Configure model, map, search, and database credentials in ignored `backend/.env`. Frontend `VITE_*` variables are public configuration and must not contain secrets.
 
+Docker configuration is available for a repeatable local run with the same ignored `backend/.env`:
+
+```powershell
+docker compose config --quiet
+docker compose up --build
+```
+
+Open <http://127.0.0.1:5173>. Docker Engine must be running; the Compose file uses the existing external PostgreSQL database and does not create or reset one. See [Vercel frontend + backend deployment](deploy/VERCEL_DEPLOYMENT.md) for the public HTTPS path.
+
 ### Validation
 
 ```powershell
@@ -124,6 +133,10 @@ npm run test:e2e --workspace frontend
 
 The local suite covers boundary behavior and the browser UI. To verify live Stage 1 behavior after configuring the ignored `backend/.env`, run `python scripts/migrate_stage1.py` once and `python scripts/verify_stage1_live.py` while the backend is running. The live script creates test conversations, makes real model calls, and checks persisted state, replay, concurrency, and owner isolation. See [Stage 1 progress and integration limits](docs/STAGE1_PROGRESS_2026-10-12.md). These checks do not validate the later planning features.
 
+For the **current multi-stop product**, use `python scripts/verify_multistop_live.py` for a real DeepSeek/Amap/PostgreSQL itinerary and confirmed segmented handoff. Use `python scripts/evaluate_itinerary_live.py` for the fixed real-map pilot; its anonymized report is written under ignored `.runtime/evaluations/`. To repeat the real browser journey, set `SOLOVIBE_LIVE_V3=1` and run `npm run test:e2e --workspace frontend -- --grep 'real browser completes multi-stop'`. These checks use provider quota. The [separate evaluation plan](docs/MULTI_STOP_TEST_EVALUATION_PLAN.md) defines the larger cohort and metrics needed before presenting reliability claims.
+
+The stage-specific commands below document earlier single-place iterations. Their acceptance numbers are historical and do not measure the current multi-stop itinerary.
+
 For a read-only count of completed runs, node events, and native LangGraph checkpoints, run `python scripts/verify_stage1_storage.py`. To opt into a real browser-to-model test, set `SOLOVIBE_LIVE=1` and run `npm run test:e2e --workspace frontend -- --grep "real UI"`; this consumes model credits.
 
 The Stage 2 live check uses a second backend on port 8001 with `SOLOVIBE_UNDERSTAND_INPUT_TOKENS=4500` and then runs `python scripts/verify_stage2_live.py`. It creates test conversations and consumes model credits. See [Stage 2 delivery and validation](docs/STAGE2_PROGRESS_2026-10-12.md) for the exact boundary and observed results.
@@ -132,7 +145,7 @@ For Stage 3, add `AMAP_API_KEY` and optionally `TAVILY_API_KEY` to `backend/.env
 
 For Stage 4, rerun `python scripts/migrate_stage1.py`, then run `python scripts/verify_stage4_live.py`. It creates a fresh conversation with real providers, checks an exact selected plan, saves it once despite duplicate confirmation, revalidates a navigation route, and verifies rejection and invalidation on new input. To check the real UI, start both services and run `$env:SOLOVIBE_LIVE_STAGE4='1'; npm run test:e2e --workspace frontend -- --grep 'real browser confirms'` in PowerShell. This covers saving, navigation-link preparation, and the recorded browser handoff. See [Stage 4 progress and verification limits](docs/STAGE4_PROGRESS_2026-10-12.md).
 
-For V3-5/V3-6, run `python scripts/verify_v3_stage5_live.py` to check real adjustments, recovery, feedback and deletion. Run `python scripts/verify_v3_cleanup_live.py` for synthetic expiry cleanup. To repeat the real browser route with configured providers, set `SOLOVIBE_LIVE_V3=1` and run `npm run test:e2e --workspace frontend -- --grep 'real browser completes location'`. These opt-in checks consume provider quota. `python scripts/cleanup_expired.py` previews expired sessions; `--apply` performs the purge. See the [V3-6 release record](docs/V3_STAGE6_RELEASE_2026-10-13.md) for production settings and backup gates.
+For V3-5/V3-6 lifecycle checks, run `python scripts/verify_v3_cleanup_live.py` for synthetic expiry cleanup. `python scripts/cleanup_expired.py` previews expired sessions; `--apply` performs the purge. See the [V3-6 release record](docs/V3_STAGE6_RELEASE_2026-10-13.md) for production settings and backup gates. The earlier `verify_v3_stage5_live.py` assumes three independent place options and is retained only as a historical stage script.
 
 ## Design and Development Documents
 
@@ -150,6 +163,8 @@ The following documents are currently written in Chinese and are linked from the
 - [V3-4 authorized merchant bridge and external acceptance gap](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE4_AUTHORIZED_MERCHANT_2026-10-13.md)
 - [V3-5 adjustments, recovery, and user-reported feedback](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE5_ADJUSTMENT_RECOVERY_2026-10-13.md)
 - [V3-6 lifecycle and release checks](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE6_RELEASE_2026-10-13.md)
+- [Multi-stop itinerary test and evaluation plan](docs/MULTI_STOP_TEST_EVALUATION_PLAN.md)
+- [Vercel frontend and Docker backend deployment guide](deploy/VERCEL_DEPLOYMENT.md)
 - [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
 - [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
 - [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)

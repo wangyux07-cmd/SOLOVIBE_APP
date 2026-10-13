@@ -25,3 +25,6 @@ jobs:
       - run: npm run test:e2e --workspace frontend
         env:
           CI: 'true'
+      - run: cp backend/.env.example backend/.env && docker compose config --quiet
+      - run: docker build -f deploy/Dockerfile.backend -t solovibe-backend:ci .
+      - run: docker build -f deploy/Dockerfile.frontend -t solovibe-frontend:ci .

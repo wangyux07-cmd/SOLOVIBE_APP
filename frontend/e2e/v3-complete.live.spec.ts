@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
-test('real browser completes location, routes, source, adjustment and confirmed save', async ({ page, context }) => {
-  test.skip(process.env.SOLOVIBE_LIVE_V3 !== '1', 'Opt-in: uses real model, Amap, Tavily and database');
+test('real browser completes multi-stop dinner itinerary, save and segmented Amap handoff', async ({ page, context }) => {
+  test.skip(process.env.SOLOVIBE_LIVE_V3 !== '1', 'Opt-in: uses real model, Amap and database');
   test.setTimeout(300_000);
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ longitude: 121.435, latitude: 31.193, accuracy: 18 });
@@ -10,22 +10,32 @@ test('real browser completes location, routes, source, adjustment and confirmed 
   await page.getByRole('button', { name: '新建会话' }).click();
   await page.getByRole('button', { name: '使用当前位置' }).click();
   await expect(page.getByText(/已记录：上海市/)).toBeVisible({ timeout: 40_000 });
-  await page.getByLabel('输入出行需求').fill('预算80元，可用时间120分钟，最多步行30分钟，只想去星巴克喝咖啡，计划停留30分钟，请规划。');
+  await page.getByLabel('输入出行需求').fill('预算180元，可用时间240分钟，最多步行90分钟，17:00出发，想逛公园和博物馆，还要吃晚饭，请规划一条多站路线。');
   await page.getByRole('button', { name: '发送消息' }).click();
-  await expect(page.getByRole('heading', { name: '可考虑的地点' })).toBeVisible({ timeout: 120_000 });
-  const first = page.getByRole('article').filter({ hasText: '星巴克' }).first();
-  await expect(first.getByText(/返程步行约/)).toBeVisible();
-  await expect(first.getByRole('img', { name: /高德步行道路折线示意/ }).locator('polyline')).toHaveCount(2);
-  await expect(first.getByText('品牌菜单示例 · 未证实本分店有售或现价')).toBeVisible();
-  await page.getByLabel('条件新值').fill('60');
+  const itinerary = page.getByRole('region', { name: '真实地点方案' });
+  await expect(itinerary.getByRole('heading', { name: '推荐游览顺序' })).toBeVisible({ timeout: 150_000 });
+  await expect(itinerary.getByText(/唯一推荐方案 · 3 站/)).toBeVisible();
+  await expect(itinerary.getByText(/· 晚餐/)).toBeVisible();
+  await expect(itinerary.getByText('预订状态：尚未代订。没有商家授权预订接口或确认号。')).toBeVisible();
+  await expect(itinerary.getByRole('link', { name: '查看餐厅信息，自行联系确认席位' })).toHaveAttribute('href', /^https:\/\//);
+  await expect(itinerary.getByRole('img', { name: /按游览顺序/ }).locator('polyline')).toHaveCount(4);
+  await page.getByLabel('条件新值').fill('160');
   await page.getByRole('button', { name: '重新规划' }).click();
-  await expect(page.getByText('本次变化：预算')).toBeVisible({ timeout: 120_000 });
-  await page.getByRole('button', { name: '保存此方案' }).first().click();
-  await expect(page.getByRole('region', { name: '行动确认' })).toContainText('请核对地点');
+  await expect(itinerary.getByText(/本次变化：预算/)).toBeVisible({ timeout: 150_000 });
+  await page.getByRole('button', { name: '确认并保存行程' }).click();
+  await expect(page.getByRole('region', { name: '行动确认' })).toContainText('多站行程');
   await page.getByRole('button', { name: '确认', exact: true }).click();
   await expect(page.getByText('方案已保存。')).toBeVisible({ timeout: 40_000 });
   await page.reload();
-  await expect(page.getByRole('region', { name: '已保存方案' })).toBeVisible();
+  await expect(page.getByRole('region', { name: '已保存方案' })).toContainText('多站行程');
+  await page.getByRole('button', { name: '确认后生成逐段导航' }).click();
+  await page.getByRole('button', { name: '确认', exact: true }).click();
+  const handoff = page.getByRole('region', { name: '行动确认' });
+  await expect(handoff.getByRole('link', { name: /第 1 段：打开高德/ })).toBeVisible({ timeout: 40_000 });
+  await expect(handoff.getByRole('link', { name: /第 4 段：打开高德/ })).toBeVisible();
+  const links = await handoff.getByRole('link', { name: /段：打开高德/ }).all();
+  expect(links).toHaveLength(4);
+  for (const link of links) expect(await link.getAttribute('href')).toMatch(/^https:\/\/uri\.amap\.com\/navigation\?/);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: '删除此会话' }).click();
   await expect(page.getByText('数据库中的结构化状态 · 版本 0')).toBeVisible();

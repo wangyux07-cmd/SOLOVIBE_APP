@@ -74,7 +74,8 @@ class AdjustmentRequest(BaseModel):
     expected_revision: int = Field(ge=0)
     field: Literal['city', 'location_text', 'return_location_text',
                    'desired_dwell_minutes', 'budget_cny', 'available_minutes',
-                   'max_walk_minutes', 'interests', 'exclusions']
+                   'max_walk_minutes', 'departure_time_local', 'meal_requirement',
+                   'interests', 'exclusions']
     value: Any
 
 
