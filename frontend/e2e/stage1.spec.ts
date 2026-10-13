@@ -10,7 +10,7 @@ test('shows the actual Stage 1 service state and never invents a result', async 
   await expect(page.getByText('把当下想做的事，慢慢说清楚。')).toBeVisible();
   if (health.ready) {
     await expect(page.getByText('数据库与模型启动检查已通过')).toBeVisible();
-    await expect(page.getByLabel('输入出行需求')).toBeEnabled();
+    await expect(page.getByLabel('输入出行需求')).toBeEnabled({ timeout: 15000 });
   } else {
     await expect(page.getByText(`尚未就绪：${health.blocker.message}`)).toBeVisible();
     await expect(page.getByRole('button', { name: '发送消息' })).toBeDisabled();

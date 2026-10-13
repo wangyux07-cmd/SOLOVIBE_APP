@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowRight, Compass, RefreshCw, RotateCcw } from 'lucide-react';
 import { apiUrl } from './api';
+import RouteSketch from './RouteSketch';
 
 type Health = { ready: boolean; stage: string; blocker?: { code: string; message: string } | null };
 type Snapshot = { revision: number; constraints: Record<string, string | number | string[] | null>; sources: Record<string, { quote: string; basis: string; revision: number }> };
 type Message = { message_id: string; role: 'user' | 'assistant'; content: string; sequence: number };
 type Pending = { run_id: string; status: string; error_code: string | null } | null;
-type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: { walking_minutes: number; distance_meters: number; observed_at: string }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; recorded_today_hours?: string | null; specialty_tags?: string[]; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; snippet?: string; identity_status: string }[] };
+type WalkRoute = { walking_minutes: number; distance_meters: number; observed_at: string; polyline?: string[] };
+type Plan = { plan_id: string; context_revision: number; place: { name: string; address: string; category: string; source_url: string; observed_at: string; poi_id: string }; route: WalkRoute; return_route?: WalkRoute | null; time_breakdown?: { outbound_minutes: number; dwell_minutes: number | null; return_minutes: number | null; buffer_minutes: number; total_minutes: number | null; dwell_source: string }; feasibility_checks?: { full_activity_time: string }; facts: { rating: number | null; average_cost_cny: number | null; recorded_hours: string | null; recorded_today_hours?: string | null; specialty_tags?: string[]; observed_at: string } | null; unknowns: string[]; tradeoff: string; web_status: string; web_sources: { title: string; url: string; snippet?: string; identity_status: string }[] };
 type PlanSet = { plan_set_id?: string; kind: string; plans: Plan[]; evidence_status: string; provider_errors: string[] };
 type Action = { action_id: string; plan_id: string; kind: 'save' | 'navigate'; proposal_version: number; proposal_digest: string;
   plan_snapshot: Plan; status: string; receipt: { kind?: string; url?: string; reason?: string; place_name?: string; note?: string } | null; expires_at: string; handoff_requested_at?: string | null };
@@ -19,7 +21,7 @@ type ChatResult = { response: string; kind: string; run_id: string; snapshot: Sn
 type TraceEvent = { node: string; status: string; elapsed_ms: number };
 
 const labels: Record<string, string> = {
-  city: '城市', location_text: '所在位置', budget_cny: '预算（元）', available_minutes: '可用时间（分钟）',
+  city: '城市', location_text: '所在位置', return_location_text: '返程终点（未填则回出发点）', desired_dwell_minutes: '计划停留（分钟）', budget_cny: '预算（元）', available_minutes: '可用时间（分钟）',
   max_walk_minutes: '最多步行（分钟）', energy: '精力', interests: '偏好', exclusions: '避开',
 };
 
@@ -49,6 +51,9 @@ export default function StageOneApp() {
   const [last, setLast] = useState<ChatResult | null>(null);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
   const [action, setAction] = useState<Action | null>(null);
+  const [returnText, setReturnText] = useState('');
+  const [dwellText, setDwellText] = useState('');
+  const [locationNotice, setLocationNotice] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -76,8 +81,8 @@ export default function StageOneApp() {
     setTrace(result.events);
   }
 
-  async function send() {
-    const message = input.trim();
+  async function send(override?: string) {
+    const message = (override ?? input).trim();
     if (!conversation || !message || busy || conversation.pending_run) return;
     setBusy(true); setError('');
     const requestId = crypto.randomUUID();
@@ -93,6 +98,40 @@ export default function StageOneApp() {
       setError(cause instanceof Error ? cause.message : '请求失败。');
       await reload().catch(() => undefined);
     } finally { setBusy(false); }
+  }
+
+  async function useCurrentLocation() {
+    if (!conversation || busy) return;
+    if (!navigator.geolocation) { setError('此浏览器不支持定位，请手动输入附近地址。'); return; }
+    setBusy(true); setError(''); setLocationNotice('正在请求定位权限并核对地址…');
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject,
+          { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }));
+      if (position.coords.accuracy > 300) throw new Error('定位精度超过 300 米，请手动输入附近地标。');
+      const result = await request<{ snapshot: Snapshot; origin: { address: string; city: string; accuracy_m: number } }>(
+        `/api/conversations/${conversation.thread_id}/origin`, {
+          ...post, body: JSON.stringify({ request_id: crypto.randomUUID(),
+            expected_revision: conversation.snapshot.revision,
+            longitude: position.coords.longitude, latitude: position.coords.latitude,
+            accuracy_m: position.coords.accuracy }),
+        });
+      await reload();
+      setLocationNotice(`已记录：${result.origin.address}（精度约 ${Math.round(result.origin.accuracy_m)} 米）。发送消息即可按这里重新规划。`);
+    } catch (cause) {
+      setLocationNotice('');
+      setError(cause instanceof Error ? cause.message : '定位失败，请手动输入附近地址。');
+    } finally { setBusy(false); }
+  }
+
+  function tripMessage() {
+    const dwell = Number(dwellText);
+    if (!Number.isInteger(dwell) || dwell < 1 || dwell > 720) {
+      setError('请填写 1–720 分钟的计划停留时间。'); return;
+    }
+    const destination = returnText.trim();
+    if (destination.length > 180) { setError('返程终点文字太长。'); return; }
+    void send(`${destination ? `返程终点是${destination}` : '返程回到原出发点'}，计划停留${dwell}分钟。`);
   }
 
   async function retry() {
@@ -166,7 +205,7 @@ export default function StageOneApp() {
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">阶段 4 · 选择与确认</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">V3-1 · 往返与完整时长</span>
       </header>
 
       <section className="py-9">
@@ -184,6 +223,11 @@ export default function StageOneApp() {
           </div>
           {conversation?.pending_run && <div className="mt-4 rounded-xl border border-orange-200/30 p-4 text-sm text-orange-100">上条消息仍有待恢复的运行（{conversation.pending_run.error_code ?? conversation.pending_run.status}）。<button type="button" disabled={busy} onClick={() => void retry()} className="ml-3 inline-flex items-center gap-1 underline"><RotateCcw size={14} />重试本条</button></div>}
           <div className="mt-6 flex gap-3"><textarea value={input} onChange={event => setInput(event.target.value)} disabled={!conversation || busy || !!conversation.pending_run} aria-label="输入出行需求" rows={3} maxLength={8000} placeholder="说说你现在的位置、预算、时间或心情…" className="min-w-0 flex-1 resize-none rounded-xl border border-white/15 bg-[#19231d] p-4 text-sm outline-none focus:border-[#bdd7a2]/60 disabled:opacity-50" /><button type="button" onClick={() => void send()} disabled={!conversation || busy || !input.trim() || !!conversation.pending_run} className="self-end rounded-xl bg-[#bdd7a2] p-4 text-[#182416] disabled:opacity-40" aria-label="发送消息"><ArrowRight size={19} /></button></div>
+          <div className="mt-4 rounded-xl border border-white/10 p-4 text-sm">
+            <div className="flex flex-wrap items-center gap-3"><button type="button" onClick={() => void useCurrentLocation()} disabled={!conversation || busy || !!conversation.pending_run} className="rounded-lg border border-[#bdd7a2]/40 px-3 py-2 disabled:opacity-40">使用当前位置</button><span className="text-xs text-[#a8b6ac]">仅在点击后请求浏览器权限；也可以在对话里手动输入地标。</span></div>
+            {locationNotice && <p className="mt-2 text-xs text-[#bdd7a2]">{locationNotice}</p>}
+            <div className="mt-4 flex flex-wrap gap-2"><input aria-label="返程终点" value={returnText} onChange={event => setReturnText(event.target.value)} placeholder="返程终点，留空回出发点" className="min-w-0 flex-1 rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs" /><input aria-label="计划停留分钟" type="number" min="1" max="720" value={dwellText} onChange={event => setDwellText(event.target.value)} placeholder="停留分钟" className="w-28 rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs" /><button type="button" disabled={!conversation || busy || !!conversation.pending_run} onClick={tripMessage} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-40">更新返程与停留</button></div>
+          </div>
           {error && <p role="alert" className="mt-4 text-sm text-orange-200">{error}</p>}
         </section>
 
@@ -194,7 +238,7 @@ export default function StageOneApp() {
       </div>
       {action && <section className="mt-6 rounded-2xl border border-[#bdd7a2]/30 bg-[#19231d] p-5 md:p-7" aria-label="行动确认">
         <h2 className="text-lg font-medium">{action.kind === 'save' ? '保存方案' : '交接步行导航'} · {action.plan_snapshot.place.name}</h2>
-        <p className="mt-2 text-sm text-[#a8b6ac]">{action.plan_snapshot.place.address} · 原方案步行约 {action.plan_snapshot.route.walking_minutes} 分钟</p>
+        <p className="mt-2 text-sm text-[#a8b6ac]">{action.plan_snapshot.place.address} · 去程约 {action.plan_snapshot.route.walking_minutes} 分钟{action.plan_snapshot.return_route ? ` · 返程约 ${action.plan_snapshot.return_route.walking_minutes} 分钟` : ''}{action.plan_snapshot.time_breakdown?.total_minutes != null ? ` · 按计划总计约 ${action.plan_snapshot.time_breakdown.total_minutes} 分钟` : ''}</p>
         {action.status === 'awaiting_confirmation' && <><p className="mt-3 text-sm text-orange-100">请核对地点。确认后会{action.kind === 'save' ? '把此方案保存到数据库' : '重新核实地点和路线，再生成高德导航链接'}。营业、费用和可进入情况仍需你自行核实。确认有效期至 {new Date(action.expires_at).toLocaleString()}。</p>
           <div className="mt-4 flex gap-3"><button type="button" disabled={busy} onClick={() => void decideAction(true)} className="rounded-lg bg-[#bdd7a2] px-4 py-2 text-sm text-[#182416] disabled:opacity-40">确认</button><button type="button" disabled={busy} onClick={() => void decideAction(false)} className="rounded-lg border border-white/20 px-4 py-2 text-sm disabled:opacity-40">取消</button></div></>}
         {(action.status === 'authorized' || action.status === 'claimed') && <p className="mt-3 text-sm text-orange-100">动作已确认但尚无完成回执。<button type="button" onClick={() => void recoverAction()} disabled={busy} className="ml-2 underline">恢复执行</button></p>}
@@ -209,16 +253,20 @@ export default function StageOneApp() {
           <p className="text-sm font-medium">{item.plan_snapshot.place.name}</p>
           <p className="mt-1 text-xs text-[#a8b6ac]">{item.plan_snapshot.place.address} · 保存于 {new Date(item.saved_at).toLocaleString()}</p>
           <p className="mt-2 text-xs text-[#a8b6ac]">保存时步行约 {item.plan_snapshot.route.walking_minutes} 分钟</p>
+          {item.plan_snapshot.time_breakdown?.total_minutes != null && <p className="mt-1 text-xs text-[#a8b6ac]">按当时计划，往返与停留共约 {item.plan_snapshot.time_breakdown.total_minutes} 分钟</p>}
           <a href={item.plan_snapshot.place.source_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-[#bdd7a2] underline">查看地点来源</a>
         </li>)}</ul>
       </section>}
       {conversation?.plan_set?.plans.length ? <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7" aria-label="真实地点方案">
-        <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-medium">可考虑的地点</h2><p className="text-xs text-[#a8b6ac]">依据当前条件版本 {conversation.snapshot.revision} · 仅路线已核实</p></div>
+        <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-medium">可考虑的地点</h2><p className="text-xs text-[#a8b6ac]">依据当前条件版本 {conversation.snapshot.revision} · 路线来自高德；完整时长取决于你计划的停留时间</p></div>
         <div className="mt-5 grid gap-4 md:grid-cols-3">{conversation.plan_set.plans.map(plan => <article key={plan.plan_id} className="rounded-xl border border-white/10 bg-[#19231d] p-5">
           <p className="text-xs text-[#bdd7a2]">{plan.place.category || '地点'} · 高德 POI {plan.place.poi_id}</p>
           <h3 className="mt-2 text-lg font-medium">{plan.place.name}</h3>
           <p className="mt-2 text-sm text-[#a8b6ac]">{plan.place.address}</p>
           <p className="mt-4 text-sm">步行约 {plan.route.walking_minutes} 分钟 · {plan.route.distance_meters} 米</p>
+          {plan.return_route && <p className="mt-1 text-sm">返程步行约 {plan.return_route.walking_minutes} 分钟 · {plan.return_route.distance_meters} 米</p>}
+          {plan.time_breakdown?.total_minutes != null && <p className="mt-1 text-xs text-[#bdd7a2]">去程 {plan.time_breakdown.outbound_minutes} ＋计划停留 {plan.time_breakdown.dwell_minutes} ＋返程 {plan.time_breakdown.return_minutes} ＋缓冲 {plan.time_breakdown.buffer_minutes} ＝约 {plan.time_breakdown.total_minutes} 分钟</p>}
+          <RouteSketch outbound={plan.route} returning={plan.return_route} />
           <p className="mt-2 text-xs text-[#a8b6ac]">高德地点资料：评分 {plan.facts?.rating ?? '未知'} · 参考人均 {plan.facts?.average_cost_cny == null ? '未知' : `${plan.facts.average_cost_cny} 元`}</p>
           {plan.facts?.recorded_hours && <p className="mt-1 text-xs text-[#a8b6ac]">登记营业时间：{plan.facts.recorded_hours}（非实时）</p>}
           {plan.facts?.recorded_today_hours && <p className="mt-1 text-xs text-[#a8b6ac]">高德所列今日时段：{plan.facts.recorded_today_hours}（不代表此刻营业）</p>}
@@ -232,7 +280,7 @@ export default function StageOneApp() {
           {plan.web_status !== 'results_unverified' && <p className="mt-3 text-xs text-[#a8b6ac]">网页资料：{plan.web_status === 'not_configured' ? '未配置搜索服务' : '本次未取得可展示结果'}</p>}
         </article>)}</div>
       </section> : null}
-      <footer className="mt-10 text-xs text-[#84938a]">阶段 4 开发预览 · 可确认保存方案或交接导航；不代订、不付款。出发前请核实营业和费用。</footer>
+      <footer className="mt-10 text-xs text-[#84938a]">V3-1 开发预览 · 往返路线由高德分别查询；停留时间按你的计划计算。出发前请核实营业和费用。</footer>
     </div>
   </main>;
 }

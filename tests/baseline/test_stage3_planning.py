@@ -27,9 +27,10 @@ async def test_real_provider_contract_builds_only_route_checked_options():
                 {'id':'A2','name':'远处公园','location':'121.500000,31.250000','address':'远路','cityname':'上海市','type':'风景名胜'},
                 {'id':'A3','name':'南京公园','location':'118.800000,32.000000','address':'远路','cityname':'南京市','type':'风景名胜'}]})
         if request.url.path.endswith('/direction/walking'):
-            assert request.url.params['show_fields'] == 'cost'
-            duration = '3000' if request.url.params['destination_id'] == 'A2' else '600'
-            return httpx.Response(200, json={'status':'1','route':{'paths':[{'cost':{'duration':duration},'distance':'750'}]}})
+            assert request.url.params['show_fields'] == 'cost,polyline'
+            duration = '3000' if (request.url.params.get('destination_id') == 'A2' or request.url.params.get('origin_id') == 'A2') else '600'
+            return httpx.Response(200, json={'status':'1','route':{'paths':[{'cost':{'duration':duration},'distance':'750',
+                'steps':[{'polyline':'121.436000,31.194000;121.437000,31.195000;121.439000,31.196000'}]}]}})
         if request.url.path.endswith('/place/detail'):
             assert request.url.path == '/v5/place/detail'
             assert request.url.params['show_fields'] == 'business'
@@ -49,6 +50,8 @@ async def test_real_provider_contract_builds_only_route_checked_options():
     assert result['plans'][0]['place']['poi_id'] == 'A1'
     assert result['plans'][0]['route']['walking_minutes'] == 10
     assert result['plans'][0]['route']['destination_poi_id'] == 'A1'
+    assert len(result['plans'][0]['route']['polyline']) == 3
+    assert result['plans'][0]['return_route']['walking_minutes'] == 10
     assert result['plans'][0]['feasibility_checks'] == {
         'outbound_walk': 'pass', 'full_activity_time': 'unknown',
         'budget': 'unknown', 'open_now': 'unknown'}

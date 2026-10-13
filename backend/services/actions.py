@@ -1,5 +1,5 @@
 """Deterministic action policy and map handoff. No booking or payment calls."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from domain.errors import AppError
@@ -18,15 +18,30 @@ async def revalidate(action, maps):
         if coordinate(place['coordinate']) != place['coordinate']:
             return {'valid': False, 'reason': 'invalid_coordinate'}
         await maps.detail(place)
-        origin = await maps.geocode(context['city'], context['location_text'])
+        if context.get('origin_source') == 'browser_gps' and context.get('origin_coordinate'):
+            observed = datetime.fromisoformat(context['origin_observed_at'])
+            if datetime.now(timezone.utc) - observed > timedelta(minutes=30):
+                return {'valid': False, 'reason': 'origin_stale'}
+            origin = {'coordinate': context['origin_coordinate'],
+                      'address': context['location_text'], 'source': 'browser_gps'}
+        else:
+            origin = await maps.geocode(context['city'], context['location_text'])
         route = await maps.walking(origin['coordinate'], place['coordinate'], place['poi_id'])
-    except (ProviderFailure, KeyError, TypeError) as exc:
+        return_destination = (await maps.geocode(context['city'], context['return_location_text'])
+                              if context.get('return_location_text') else origin)
+        return_route = await maps.walking(place['coordinate'], return_destination['coordinate'],
+                                          origin_id=place['poi_id'])
+    except (ProviderFailure, KeyError, TypeError, ValueError) as exc:
         return {'valid': False, 'reason': exc.category if isinstance(exc, ProviderFailure) else 'invalid_plan'}
     limit = context['available_minutes']
     walk_limit = context['max_walk_minutes']
-    if route['walking_minutes'] > limit or (walk_limit is not None and route['walking_minutes'] > walk_limit):
+    if (route['walking_minutes'] > limit or
+            (walk_limit is not None and max(route['walking_minutes'], return_route['walking_minutes']) > walk_limit)):
         return {'valid': False, 'reason': 'route_exceeds_limit'}
-    return {'valid': True, 'origin': origin, 'route': route}
+    dwell = context.get('desired_dwell_minutes')
+    if dwell is not None and route['walking_minutes'] + dwell + return_route['walking_minutes'] + 10 > limit:
+        return {'valid': False, 'reason': 'full_trip_exceeds_limit'}
+    return {'valid': True, 'origin': origin, 'route': route, 'return_route': return_route}
 
 
 def navigation_receipt(action, evidence):

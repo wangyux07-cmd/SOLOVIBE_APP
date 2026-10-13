@@ -14,8 +14,8 @@ from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.6.0'
-STAGE = 'stage4'
+VERSION = '0.7.0'
+STAGE = 'v3-1'
 COOKIE = 'solovibe_session'
 
 
@@ -54,6 +54,15 @@ class DecisionRequest(BaseModel):
 class HandoffRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     request_id: UUID
+
+
+class BrowserOriginRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    request_id: UUID
+    expected_revision: int = Field(ge=0)
+    longitude: float = Field(ge=73, le=135, allow_inf_nan=False)
+    latitude: float = Field(ge=18, le=54, allow_inf_nan=False)
+    accuracy_m: float = Field(ge=0, le=300, allow_inf_nan=False)
 
 
 def create_app():
@@ -151,6 +160,12 @@ def create_app():
         current = await runtime.repo.read(await owner(request),str(thread_id))
         return {'thread_id':str(thread_id), 'context_revision':current['snapshot']['revision'],
                 'plan_set':current['plan_set']}
+
+    @app.post('/api/conversations/{thread_id}/origin')
+    async def browser_origin(thread_id:UUID, body:BrowserOriginRequest, request:Request):
+        return await runtime.set_browser_origin(await owner(request), str(thread_id),
+            str(body.request_id), body.expected_revision,
+            body.longitude, body.latitude, body.accuracy_m)
 
     @app.post('/api/conversations/{thread_id}/actions')
     async def prepare_action(thread_id:UUID,body:ActionRequest,request:Request):

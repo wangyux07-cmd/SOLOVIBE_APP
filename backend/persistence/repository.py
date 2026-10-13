@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from psycopg.types.json import Jsonb
 
-from domain.context import ContextSnapshot, Understanding, apply_patch
+from domain.context import ContextSnapshot, FieldSource, Understanding, apply_patch
 from domain.errors import AppError, Conflict
 from persistence.actions import ActionRepository, public_action
 
@@ -86,6 +86,46 @@ class Repository:
                 'context_memory': {'summary_revision': summary['revision'] if summary else 0,
                                    'covered_until_sequence': summary['covered_until_sequence'] if summary else 0,
                                    'raw_messages_retained': True}}
+
+    async def set_browser_origin(self, owner, thread, request_id, expected_revision, location):
+        """Commit a user-clicked location without asking the language model to invent coordinates."""
+        async with self.pool.connection() as conn, conn.transaction():
+            row = await (await conn.execute('''SELECT snapshot,active_run FROM solovibe_v1.conversations
+                WHERE thread_id=%s AND owner_id=%s FOR UPDATE''', (thread, owner))).fetchone()
+            if not row:
+                raise AppError('NOT_FOUND', '会话不存在或不属于当前浏览器。', 404)
+            current = ContextSnapshot.model_validate(row['snapshot'])
+            previous = current.sources.get('origin_coordinate')
+            if previous and previous.message_id == request_id:
+                if current.constraints.origin_coordinate != location['coordinate']:
+                    raise Conflict('REQUEST_ID_REUSED', '同一请求编号不能用于不同位置。')
+                return current.model_dump()
+            if row['active_run']:
+                raise Conflict('PENDING_RUN', '请先完成或重试上一条消息。')
+            if current.revision != expected_revision:
+                raise Conflict('STALE_REVISION', '状态已有更新，请刷新后重试定位。')
+            pending = await (await conn.execute('''SELECT status FROM solovibe_v1.actions
+                WHERE thread_id=%s ORDER BY created_at DESC LIMIT 1''', (thread,))).fetchone()
+            if pending and pending['status'] in ('authorized', 'claimed'):
+                raise Conflict('ACTION_RECOVERY_REQUIRED', '请先恢复上一项已确认动作。')
+            await conn.execute('''UPDATE solovibe_v1.actions SET status='invalidated',
+                receipt=%s, updated_at=now() WHERE thread_id=%s AND status='awaiting_confirmation' ''',
+                (Jsonb({'reason': 'origin_changed'}), thread))
+            values = current.constraints.model_dump()
+            values.update(city=location['city'], location_text=location['address'],
+                          origin_coordinate=location['coordinate'],
+                          origin_accuracy_m=location['accuracy_m'],
+                          origin_observed_at=location['observed_at'], origin_source='browser_gps')
+            sources = dict(current.sources)
+            for field in ('city', 'location_text', 'origin_coordinate', 'origin_accuracy_m',
+                          'origin_observed_at', 'origin_source'):
+                sources[field] = FieldSource(message_id=request_id,
+                    quote='用户授权的浏览器定位', basis='explicit', revision=current.revision + 1)
+            updated = ContextSnapshot(revision=current.revision + 1,
+                                      constraints=values, sources=sources).model_dump()
+            await conn.execute('''UPDATE solovibe_v1.conversations SET snapshot=%s
+                WHERE thread_id=%s AND owner_id=%s''', (Jsonb(updated), thread, owner))
+            return updated
 
     @asynccontextmanager
     async def guard(self, owner, thread):

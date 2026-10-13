@@ -63,12 +63,23 @@ def specialty_tags(value):
     return [tag[:60] for tag in (part.strip() for part in re.split(r'[,，]', value)) if tag][:6]
 
 
+def matches_specific_interest(place, interests):
+    """Prevent keyword matches such as a shop named after a park from ranking as parks."""
+    if len(interests) == 1 and '公园' in interests[0]:
+        name = scalar(place.get('name'))
+        category = scalar(place.get('category'))
+        return name.endswith('公园') and (
+            category == '公园' or category.startswith('风景名胜')
+            or category.startswith('体育休闲服务'))
+    return True
+
+
 class AmapProvider:
     BASE = 'https://restapi.amap.com'
 
     def __init__(self, key: str, client: httpx.AsyncClient | None = None):
         self.key = key
-        self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
+        self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(8, connect=3))
         self.owns_client = client is None
 
     async def close(self):
@@ -129,6 +140,30 @@ class AmapProvider:
             raise ProviderFailure('location_ambiguous')
         return matches[0]
 
+    async def browser_location(self, longitude: float, latitude: float, accuracy_m: float):
+        if not (73 <= longitude <= 135 and 18 <= latitude <= 54 and 0 <= accuracy_m <= 300):
+            raise ProviderFailure('location_inaccurate')
+        gps = f'{longitude:.6f},{latitude:.6f}'
+        converted = await self.get('/v3/assistant/coordinate/convert',
+                                   {'locations': gps, 'coordsys': 'gps'})
+        point = coordinate(converted.get('locations'))
+        if not point:
+            raise ProviderFailure('invalid_response')
+        data = await self.get('/v3/geocode/regeo', {'location': point, 'extensions': 'base'})
+        record = data.get('regeocode')
+        if not isinstance(record, dict):
+            raise ProviderFailure('invalid_response')
+        component = record.get('addressComponent')
+        if not isinstance(component, dict):
+            raise ProviderFailure('invalid_response')
+        city = scalar(component.get('city')) or scalar(component.get('province'))
+        address = scalar(record.get('formatted_address'))
+        if not city or not address:
+            raise ProviderFailure('location_not_found')
+        return {'coordinate': point, 'address': address, 'city': city,
+                'accuracy_m': accuracy_m, 'source': 'browser_gps',
+                'observed_at': datetime.now(timezone.utc).isoformat()}
+
     async def search(self, city, point, keyword):
         data = await self.get('/v3/place/around', {'location': point, 'keywords': keyword,
                               'radius': 5000, 'sortrule': 'distance', 'offset': 10,
@@ -155,10 +190,14 @@ class AmapProvider:
                           'observed_at': datetime.now(timezone.utc).isoformat()})
         return items
 
-    async def walking(self, origin, destination, destination_id):
-        data = await self.get('/v5/direction/walking', {'origin': origin, 'destination': destination,
-                                                         'destination_id': destination_id,
-                                                         'show_fields': 'cost'})
+    async def walking(self, origin, destination, destination_id=None, *, origin_id=None, geometry=False):
+        parameters = {'origin': origin, 'destination': destination,
+                      'show_fields': 'cost,polyline' if geometry else 'cost'}
+        if destination_id:
+            parameters['destination_id'] = destination_id
+        if origin_id:
+            parameters['origin_id'] = origin_id
+        data = await self.get('/v5/direction/walking', parameters)
         if not isinstance(data.get('route'), dict) or not isinstance(data['route'].get('paths'), list):
             raise ProviderFailure('invalid_response')
         paths = data['route']['paths']
@@ -171,9 +210,30 @@ class AmapProvider:
             raise ProviderFailure('invalid_response') from None
         if seconds < 0 or meters < 0:
             raise ProviderFailure('invalid_response')
+        points = []
+        if geometry:
+            steps = paths[0].get('steps')
+            if isinstance(steps, list):
+                too_many = False
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    for raw_point in scalar(step.get('polyline')).split(';'):
+                        point = coordinate(raw_point)
+                        if point and (not points or point != points[-1]):
+                            points.append(point)
+                        if len(points) > 1000:
+                            too_many = True
+                            break
+                    if too_many:
+                        break
+                if too_many:
+                    points = []
         return {'walking_minutes': math.ceil(seconds / 60), 'distance_meters': meters,
                 'provider': 'amap', 'origin_coordinate': origin,
+                'origin_poi_id': origin_id,
                 'destination_coordinate': destination, 'destination_poi_id': destination_id,
+                'polyline': points,
                 'observed_at': datetime.now(timezone.utc).isoformat()}
 
     async def detail(self, place):
@@ -257,11 +317,35 @@ class Planner:
     async def collect(self, snapshot: ContextSnapshot):
         c = snapshot.constraints
         if not self.maps.key:
-            return {'status': 'maps_not_configured', 'places': [], 'origin': None, 'errors': []}
+            return {'status': 'maps_not_configured', 'places': [], 'origin': None,
+                    'return_destination': None, 'errors': []}
         try:
-            origin = await self.maps.geocode(c.city, c.location_text)
+            if c.origin_source == 'browser_gps' and c.origin_coordinate:
+                try:
+                    observed = datetime.fromisoformat(c.origin_observed_at or '')
+                    age_seconds = (datetime.now(timezone.utc) - observed).total_seconds()
+                except (ValueError, TypeError):
+                    age_seconds = float('inf')
+                if not 0 <= age_seconds <= 1800:
+                    raise ProviderFailure('location_stale')
+                origin = {'coordinate': c.origin_coordinate, 'address': c.location_text,
+                          'source': 'browser_gps', 'accuracy_m': c.origin_accuracy_m,
+                          'observed_at': c.origin_observed_at}
+            else:
+                origin = await self.maps.geocode(c.city, c.location_text)
+                origin['source'] = 'manual_text'
         except ProviderFailure as exc:
-            return {'status': exc.category, 'places': [], 'origin': None, 'errors': [exc.category]}
+            return {'status': exc.category, 'places': [], 'origin': None,
+                    'return_destination': None, 'errors': [exc.category]}
+        return_error = None
+        if c.return_location_text:
+            try:
+                return_destination = await self.maps.geocode(c.city, c.return_location_text)
+                return_destination['source'] = 'manual_text'
+            except ProviderFailure as exc:
+                return_destination, return_error = None, exc.category
+        else:
+            return_destination = origin
         keywords = [value.strip()[:40] for value in c.interests if value.strip()][:3] or ['公园', '博物馆', '咖啡馆']
         results = await asyncio.gather(*(self.maps.search(c.city, origin['coordinate'], word) for word in keywords),
                                        return_exceptions=True)
@@ -287,20 +371,32 @@ class Planner:
                         if item['poi_id'] not in seen:
                             seen.add(item['poi_id'])
                             places.append(item)
-        places = places[:8]
-        semaphore = asyncio.Semaphore(4)
+        places = [place for place in places if matches_specific_interest(place, c.interests)][:6]
+        semaphore = asyncio.Semaphore(2)
         async def route(place):
             async with semaphore:
                 try:
-                    place['route'] = await self.maps.walking(origin['coordinate'], place['coordinate'], place['poi_id'])
+                    place['route'] = await self.maps.walking(origin['coordinate'], place['coordinate'],
+                                                              place['poi_id'], geometry=True)
                 except ProviderFailure as exc:
                     place['route_error'] = exc.category
+                if return_destination:
+                    try:
+                        place['return_route'] = await self.maps.walking(
+                            place['coordinate'], return_destination['coordinate'],
+                            origin_id=place['poi_id'], geometry=True)
+                    except ProviderFailure as exc:
+                        place['return_route_error'] = exc.category
         await asyncio.gather(*(route(place) for place in places))
         errors.extend(place['route_error'] for place in places if 'route_error' in place)
+        errors.extend(place['return_route_error'] for place in places if 'return_route_error' in place)
+        if return_error:
+            errors.append(return_error)
         status = ('ok' if any('route' in place for place in places) else
                   'route_unavailable' if places else 'provider_error' if errors else 'empty')
         return {'status': status,
-                'origin': origin, 'places': places, 'errors': errors}
+                'origin': origin, 'return_destination': return_destination,
+                'return_error': return_error, 'places': places, 'errors': errors}
 
     def verify(self, snapshot: ContextSnapshot, evidence: dict):
         c = snapshot.constraints
@@ -313,10 +409,20 @@ class Planner:
                 continue
             if c.max_walk_minutes is not None and route['walking_minutes'] > c.max_walk_minutes:
                 continue
+            return_route = place.get('return_route')
+            if (return_route and c.max_walk_minutes is not None
+                    and return_route['walking_minutes'] > c.max_walk_minutes):
+                continue
+            if (return_route and c.desired_dwell_minutes is not None
+                    and route['walking_minutes'] + c.desired_dwell_minutes
+                    + return_route['walking_minutes'] + 10 > c.available_minutes):
+                continue
             if any(word and (word.casefold() in (place['name'] + place['category']).casefold()) for word in c.exclusions):
                 continue
             accepted.append(place)
-        accepted.sort(key=lambda item: (item['route']['walking_minutes'], item['poi_id']))
+        accepted.sort(key=lambda item: (
+            c.desired_dwell_minutes is not None and not item.get('return_route'),
+            item['route']['walking_minutes'], item['poi_id']))
         # Give the user different activities when the provider returned them.
         selected, seen_categories = [], set()
         for place in accepted:
@@ -362,23 +468,45 @@ class Planner:
         plans = []
         for place in selected:
             route = place['route']
+            return_route = place.get('return_route')
+            dwell = snapshot.constraints.desired_dwell_minutes
+            full_minutes = (route['walking_minutes'] + dwell + return_route['walking_minutes'] + 10
+                            if dwell is not None and return_route else None)
+            full_status = ('pass' if full_minutes is not None and full_minutes <= snapshot.constraints.available_minutes
+                           else 'fail' if full_minutes is not None else 'unknown')
+            unknowns = ['实际消费', '当前营业状态', '到店可用性', '完整菜单、套餐及当前优惠']
+            if full_status == 'unknown':
+                unknowns.append('完整活动时长')
             facts = place.get('facts')
             plans.append({'plan_id': f'amap:{place["poi_id"]}', 'context_revision': snapshot.revision,
                           'place': {key: place[key] for key in ('provider', 'poi_id', 'name', 'address', 'city', 'coordinate', 'category', 'source_url', 'observed_at')},
-                          'route': route, 'facts': facts, 'detail_status': place.get('detail_status'),
+                          'route': route, 'return_route': return_route,
+                          'origin': evidence.get('origin'), 'return_destination': evidence.get('return_destination'),
+                          'time_breakdown': {'outbound_minutes': route['walking_minutes'],
+                                             'dwell_minutes': dwell,
+                                             'return_minutes': return_route['walking_minutes'] if return_route else None,
+                                             'buffer_minutes': 10, 'total_minutes': full_minutes,
+                                             'dwell_source': 'user_selected' if dwell is not None else 'unknown'},
+                          'facts': facts, 'detail_status': place.get('detail_status'),
                           'web_status': place['web_status'], 'web_sources': place['web_sources'],
                           'feasibility': 'outbound_route_verified_other_facts_unknown',
-                          'feasibility_checks': {'outbound_walk': 'pass', 'full_activity_time': 'unknown',
+                          'feasibility_checks': {'outbound_walk': 'pass', 'full_activity_time': full_status,
                                                  'budget': 'unknown', 'open_now': 'unknown'},
-                          'unknowns': ['实际消费', '当前营业状态', '到店可用性', '完整菜单、套餐及当前优惠'],
-                          'tradeoff': f'去程步行约 {route["walking_minutes"]} 分钟，{route["distance_meters"]} 米；完整活动时长、预算与营业情况尚需核实。'})
+                          'unknowns': unknowns,
+                          'tradeoff': (f'去程 {route["walking_minutes"]} 分钟，返程 {return_route["walking_minutes"]} 分钟，'
+                                       f'按计划停留 {dwell} 分钟并预留 10 分钟，总计约 {full_minutes} 分钟；预算与营业仍需核实。'
+                                       if full_minutes is not None else
+                                       f'去程步行约 {route["walking_minutes"]} 分钟，{route["distance_meters"]} 米；'
+                                       '返程或停留时间尚未完整核实。')})
         if plans:
-            response = f'找到 {len(plans)} 个真实地点，已核对从你提供的位置步行到达的路线。实际消费、营业时间和是否可进入仍未知，请查看来源后再决定。'
+            response = f'找到 {len(plans)} 个真实地点，已查询去程和可用的返程路线。实际消费、营业时间和是否可进入仍未知，请查看来源后再决定。'
             kind = 'options_ready'
         elif evidence['status'] == 'maps_not_configured':
             response, kind = '地图服务尚未配置，暂时无法查询真实地点。请配置高德 Web 服务 Key 后重试。', 'provider_unavailable'
-        elif evidence['status'] in {'location_not_found', 'location_ambiguous'}:
-            response, kind = '当前位置无法唯一定位。请补充更具体的街道地址或地标名称。', 'clarification'
+        elif evidence['status'] in {'location_not_found', 'location_ambiguous', 'location_stale'}:
+            response, kind = ('之前的浏览器定位已过期，请重新点击“使用当前位置”或手动输入地标。'
+                              if evidence['status'] == 'location_stale' else
+                              '当前位置无法唯一定位。请补充更具体的街道地址或地标名称。'), 'clarification'
         elif evidence['status'] in {'forbidden', 'provider_error', 'timeout', 'network', 'temporary', 'invalid_response', 'invalid_request', 'route_unavailable'}:
             response, kind = '地图查询暂时失败，未生成地点方案。请检查服务状态后重试。', 'provider_unavailable'
         else:

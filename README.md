@@ -6,7 +6,7 @@ SoloVibe helps people decide what to do when they want to head out alone. It bri
 
 > **Project status: redesign implementation in progress.** Stages 0–4 are implemented on `Refactor`, and Stage 5A has verified real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser flows. Amap provides branch and route evidence; live opening status, branch menus, offers, and availability have not been implemented. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the next work and its evidence requirements.
 
-V3-0 now has a fixed 12-venue Shanghai pilot cohort, typed source/claim contracts, and additive evidence tables. The [V3-0 delivery record](docs/V3_STAGE0_EVIDENCE_2026-10-13.md) distinguishes real Amap search candidates from verified branch identities. V3-1 location and round-trip work is next.
+V3-0 fixed a 12-venue Shanghai pilot cohort and added typed source/claim contracts. V3-1 now supports user-initiated browser location, separately queried outbound and return walking routes, provider road-polylines, and a full-trip time check based on user-selected dwell time. See the [V3-0 record](docs/V3_STAGE0_EVIDENCE_2026-10-13.md) and [V3-1 delivery report](docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md). Branch menus, offers, and live availability are still future work.
 
 ## Why SoloVibe?
 
@@ -142,6 +142,7 @@ The following documents are currently written in Chinese and are linked from the
 - [Redesigned Plan V3: complete next-stage implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V3.md)
 - [External information acquisition plan: maps, public pages, merchants, and availability](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_INFORMATION_ACQUISITION_PLAN_V2.md)
 - [V3-0 evidence contract and real pilot baseline](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE0_EVIDENCE_2026-10-13.md)
+- [V3-1 browser location, round trip, and full-time verification](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md)
 - [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
 - [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
 - [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)

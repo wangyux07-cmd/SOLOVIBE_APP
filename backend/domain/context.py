@@ -12,6 +12,12 @@ class Constraints(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     city: str | None = Field(default=None, max_length=80)
     location_text: str | None = Field(default=None, max_length=180)
+    origin_coordinate: str | None = Field(default=None, pattern=r"^\d{2,3}\.\d{6},\d{2}\.\d{6}$")
+    origin_accuracy_m: float | None = Field(default=None, ge=0, le=300)
+    origin_observed_at: str | None = None
+    origin_source: Literal["browser_gps"] | None = None
+    return_location_text: str | None = Field(default=None, max_length=180)
+    desired_dwell_minutes: int | None = Field(default=None, ge=1, le=720)
     budget_cny: float | None = Field(default=None, ge=0, le=100000)
     available_minutes: int | None = Field(default=None, ge=1, le=1440)
     max_walk_minutes: int | None = Field(default=None, ge=0, le=360)
@@ -28,7 +34,7 @@ class FieldSource(BaseModel):
 
 
 class ContextSnapshot(BaseModel):
-    schema_version: int = 1
+    schema_version: int = 2
     revision: int = 0
     constraints: Constraints = Field(default_factory=Constraints)
     sources: dict[str, FieldSource] = Field(default_factory=dict)
@@ -36,7 +42,7 @@ class ContextSnapshot(BaseModel):
 
 class FieldChange(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    field: Literal["city", "location_text", "budget_cny", "available_minutes", "max_walk_minutes", "energy", "interests", "exclusions"]
+    field: Literal["city", "location_text", "return_location_text", "desired_dwell_minutes", "budget_cny", "available_minutes", "max_walk_minutes", "energy", "interests", "exclusions"]
     value: Any
     quote: str = Field(min_length=1, max_length=1000)
     basis: Literal["explicit", "inferred"] = "explicit"
@@ -89,9 +95,13 @@ def apply_patch(snapshot: ContextSnapshot, proposal: Understanding, message: str
             raise AppError("INVALID_MODEL_PATCH", "空字段必须明确表示为 null。")
         if isinstance(change.value, list) and any(not isinstance(x, str) or not x.strip() or len(x) > 80 for x in change.value):
             raise AppError("INVALID_MODEL_PATCH", "偏好字段格式无效。")
-        if change.field in ('budget_cny','available_minutes','max_walk_minutes') and not _number_supported(change.field,change.value,change.quote,values[change.field]):
+        if change.field in ('budget_cny','available_minutes','max_walk_minutes','desired_dwell_minutes') and not _number_supported(change.field,change.value,change.quote,values[change.field]):
             raise AppError("INVALID_MODEL_PATCH", "模型给出的数值与本条消息依据不一致，请明确数值后重试。")
         values[change.field] = change.value
+        if change.field in ('city', 'location_text') and values['origin_source'] == 'browser_gps':
+            for origin_field in ('origin_coordinate', 'origin_accuracy_m', 'origin_observed_at', 'origin_source'):
+                values[origin_field] = None
+                sources.pop(origin_field, None)
         sources[change.field] = FieldSource(
             message_id=message_id, quote=change.quote, basis=change.basis,
             revision=snapshot.revision + 1,
@@ -117,6 +127,9 @@ def context_summary(snapshot: ContextSnapshot) -> str:
     parts = []
     if c.city: parts.append(f"城市：{c.city}")
     if c.location_text: parts.append(f"位置：{c.location_text}")
+    if c.origin_source == "browser_gps": parts.append("位置来自本次授权的浏览器定位")
+    if c.return_location_text: parts.append(f"返程终点：{c.return_location_text}")
+    if c.desired_dwell_minutes is not None: parts.append(f"计划停留：{c.desired_dwell_minutes} 分钟")
     if c.budget_cny is not None: parts.append(f"预算：{c.budget_cny:g} 元")
     if c.available_minutes is not None: parts.append(f"可用时间：{c.available_minutes} 分钟")
     if c.max_walk_minutes is not None: parts.append(f"最多步行：{c.max_walk_minutes} 分钟")

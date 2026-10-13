@@ -26,7 +26,7 @@ class Maps:
         self.calls.append('geocode')
         return {'coordinate': '121.436000,31.194000'}
 
-    async def walking(self, origin, destination, poi_id):
+    async def walking(self, origin, destination, poi_id=None, **kwargs):
         self.calls.append('walking')
         return {'walking_minutes': self.minutes, 'distance_meters': 780}
 
@@ -35,7 +35,7 @@ class Maps:
 async def test_navigation_revalidates_identity_location_and_route_before_handoff():
     maps = Maps()
     evidence = await revalidate(action(), maps)
-    assert evidence['valid'] and maps.calls == ['detail', 'geocode', 'walking']
+    assert evidence['valid'] and maps.calls == ['detail', 'geocode', 'walking', 'walking']
     receipt = navigation_receipt(action(), evidence)
     assert receipt['kind'] == 'navigation_handoff_ready'
     assert 'mode=walk' in receipt['url']
@@ -52,6 +52,13 @@ async def test_route_limit_and_expiry_block_handoff():
     maps = Maps()
     assert await revalidate(expired, maps) == {'valid': False, 'reason': 'expired'}
     assert maps.calls == []
+
+
+@pytest.mark.asyncio
+async def test_navigation_rechecks_full_trip_limit():
+    proposed = action()
+    proposed['context_snapshot']['constraints']['desired_dwell_minutes'] = 30
+    assert await revalidate(proposed, Maps()) == {'valid': False, 'reason': 'full_trip_exceeds_limit'}
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,7 @@ from persistence.repository import Repository
 from persistence.actions import public_action
 from services.model_client import DeepSeekClient
 from services.planning import create_planner
+from services.planning import ProviderFailure
 
 
 def database_dsn():
@@ -99,6 +100,19 @@ class Application:
     def require_ready(self):
         if not self.ready:
             raise self.error
+
+    async def set_browser_origin(self, owner, thread, request_id, expected_revision,
+                                 longitude, latitude, accuracy_m):
+        async with self.slots, self.repo.guard(owner, thread):
+            try:
+                location = await self.planner.maps.browser_location(longitude, latitude, accuracy_m)
+            except ProviderFailure as exc:
+                status = 422 if exc.category in ('location_inaccurate', 'location_not_found') else 503
+                raise AppError('LOCATION_' + exc.category.upper(),
+                               '无法确认这次定位，请手动输入附近地标或稍后重试。', status) from None
+            snapshot = await self.repo.set_browser_origin(
+                owner, thread, request_id, expected_revision, location)
+            return {'snapshot': snapshot, 'origin': location}
 
     async def chat(self, owner, thread, request_id, message, expected_revision):
         async with self.slots, self.repo.guard(owner,thread):
