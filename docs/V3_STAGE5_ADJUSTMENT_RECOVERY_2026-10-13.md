@@ -35,7 +35,7 @@ cd D:\SOLOVIBE_APP
 
 ## 验证
 
-- `pytest -q`：100 passed（含 V3-6 新增测试）
+- `pytest -q`：103 passed（含预算、时间、位置和偏好修改的证据复用边界，以及 V3-6 新增测试）
 - `npm run lint`：通过
 - `npm run build`：通过
 - `scripts/verify_v3_stage5_live.py`：真实模型、高德、搜索和 PostgreSQL 返回 3 个方案；预算修改、同请求重放、旧方案拒绝、跨进程状态、单店重查、用户反馈与业务表/检查点一致删除通过。

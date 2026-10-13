@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from domain.context import Constraints, ContextSnapshot, direct_adjustment
+from domain.context import Constraints, ContextSnapshot, apply_patch, direct_adjustment
 from domain.errors import AppError
 from services.planning import Planner
 
@@ -64,6 +64,20 @@ def test_reuse_matrix_allows_only_narrowing_or_presentation_changes():
     after_city = ContextSnapshot(revision=5, constraints={**old.constraints.model_dump(),
                                   'city': '杭州'}, sources=old.sources)
     assert Planner.reuse_mode(old, after_city, prior_plan(), ['city']) is None
+
+
+@pytest.mark.parametrize(('field', 'value', 'expected_reuse'), [
+    ('available_minutes', 60, 'facts_and_routes'),
+    ('location_text', '人民广场站', None),
+    ('interests', ['书店'], None),
+])
+def test_time_location_and_preference_edits_cross_the_right_evidence_boundary(
+        field, value, expected_reuse):
+    before = state()
+    message, proposal = direct_adjustment(before, field, value)
+    after = apply_patch(before, proposal, message, 'test')
+    assert getattr(after.constraints, field) == value
+    assert Planner.reuse_mode(before, after, prior_plan(), [field]) == expected_reuse
 
 
 def test_new_plan_ids_include_the_new_immutable_plan_set():

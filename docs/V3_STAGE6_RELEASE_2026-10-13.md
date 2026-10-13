@@ -16,7 +16,7 @@
 - 当前开发数据库的增量迁移成功；真实 V3-5 服务测试返回 3 个路线方案，验证版本变更、重放、跨进程状态、单店重查、反馈和一致删除。
 - 真实 Edge 浏览器完成：授权定位 → 去返程道路折线 → 官方品牌菜单来源 → 预算修改 → 确认保存 → 刷新恢复 → 删除会话。
 - 人工构造的过期匿名会话经预览后被清理，会话及所有者记录均为零；正常全库预览未发现过期会话。
-- `pytest -q`：100 passed；前端 lint 和 build 通过；浏览器模拟用例 7 passed、6 skipped（需真实服务的用例默认不运行）；独立真实浏览器用例 1 passed。
+- `pytest -q`：103 passed；前端 lint 和 build 通过；浏览器模拟用例 7 passed、6 skipped（需真实服务的用例默认不运行）；独立真实浏览器用例 1 passed。
 - 使用与 Supabase PostgreSQL 17 兼容的本机 PostgreSQL 17.11 客户端，对现有数据库的 `solovibe_v1` 和 `solovibe_graph` schema 完成自定义格式备份；归档清单验证通过。归档保存在被 Git 忽略的 `.runtime/backups/` 中，不进入仓库。
 - 在仅绑定 `127.0.0.1` 的独立空白 PostgreSQL 17.11 库中执行 `restore-drill`，并验证业务会话、运行和 LangGraph 检查点表均存在。该测试库与 Supabase 的主机和库不同；源数据库未被恢复操作写入。测试库文件保留在 `.runtime/pg-scratch-data/` 供本机复查。
 - [GitHub Actions](https://github.com/wangyux07-cmd/SOLOVIBE_APP/actions/runs/38470722720) 对提交 `6f2e6bff` 的 CI 检查成功。
