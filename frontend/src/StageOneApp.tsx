@@ -13,6 +13,7 @@ type Action = { action_id: string; plan_id: string; kind: 'save' | 'navigate'; p
 type Conversation = { thread_id: string; snapshot: Snapshot; messages: Message[]; pending_run: Pending;
   plan_set: PlanSet | null;
   latest_action?: Action | null;
+  saved_plans?: { action_id: string; plan_snapshot: Plan; saved_at: string }[];
   context_memory: { summary_revision: number; covered_until_sequence: number; raw_messages_retained: boolean } };
 type ChatResult = { response: string; kind: string; run_id: string; snapshot: Snapshot; model: { provider: string; model: string; input_tokens: number | null; output_tokens: number | null; actual_call: boolean } };
 type TraceEvent = { node: string; status: string; elapsed_ms: number };
@@ -200,6 +201,16 @@ export default function StageOneApp() {
         {action.status === 'completed' && action.receipt?.kind === 'plan_saved' && <p className="mt-3 text-sm text-[#bdd7a2]">方案已保存。</p>}
         {action.status === 'completed' && action.receipt?.kind === 'navigation_handoff_ready' && action.receipt.url && <p className="mt-3 text-sm"><a href={action.receipt.url} target="_blank" rel="noopener noreferrer" onClick={() => void recordHandoff()} className="text-[#bdd7a2] underline">打开高德步行导航</a><span className="ml-2 text-[#a8b6ac]">{action.handoff_requested_at ? '已请求打开导航；无法确认高德是否接收。' : '链接已生成，尚未代你出发。'}</span></p>}
         {(action.status === 'rejected' || action.status === 'invalidated') && <p className="mt-3 text-sm text-orange-100">动作已{action.status === 'rejected' ? '取消' : '失效'}{action.receipt?.reason ? `（${action.receipt.reason}）` : ''}，不会执行。</p>}
+      </section>}
+      {!!conversation?.saved_plans?.length && <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7" aria-label="已保存方案">
+        <h2 className="text-lg font-medium">已保存方案</h2>
+        <p className="mt-2 text-xs text-[#a8b6ac]">这是保存时的地点与路线快照；出发前请重新核实路线、营业和费用。</p>
+        <ul className="mt-4 grid gap-3 md:grid-cols-2">{conversation.saved_plans.map(item => <li key={item.action_id} className="rounded-xl border border-white/10 bg-[#19231d] p-4">
+          <p className="text-sm font-medium">{item.plan_snapshot.place.name}</p>
+          <p className="mt-1 text-xs text-[#a8b6ac]">{item.plan_snapshot.place.address} · 保存于 {new Date(item.saved_at).toLocaleString()}</p>
+          <p className="mt-2 text-xs text-[#a8b6ac]">保存时步行约 {item.plan_snapshot.route.walking_minutes} 分钟</p>
+          <a href={item.plan_snapshot.place.source_url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-[#bdd7a2] underline">查看地点来源</a>
+        </li>)}</ul>
       </section>}
       {conversation?.plan_set?.plans.length ? <section className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7" aria-label="真实地点方案">
         <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-lg font-medium">可考虑的地点</h2><p className="text-xs text-[#a8b6ac]">依据当前条件版本 {conversation.snapshot.revision} · 仅路线已核实</p></div>

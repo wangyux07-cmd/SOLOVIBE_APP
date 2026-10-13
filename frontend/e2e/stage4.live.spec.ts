@@ -13,8 +13,10 @@ test('real browser confirms save and navigation handoff with persisted receipts'
   await expect(page.getByRole('region', { name: '行动确认' })).toContainText('请核对地点');
   await page.getByRole('button', { name: '确认', exact: true }).click();
   await expect(page.getByText('方案已保存。')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: '已保存方案' }).locator('li')).toHaveCount(1);
   await page.reload();
   await expect(page.getByText('方案已保存。')).toBeVisible();
+  await expect(page.getByRole('region', { name: '已保存方案' })).toBeVisible();
   await page.getByRole('button', { name: '准备步行导航' }).first().click();
   await expect(page.getByRole('region', { name: '行动确认' })).toContainText('重新核实地点和路线');
   await page.getByRole('button', { name: '确认', exact: true }).click();
@@ -28,4 +30,5 @@ test('real browser confirms save and navigation handoff with persisted receipts'
   await expect(page.getByText('已请求打开导航；无法确认高德是否接收。')).toBeVisible();
   await page.reload();
   await expect(page.getByText('已请求打开导航；无法确认高德是否接收。')).toBeVisible();
+  await expect(page.getByRole('region', { name: '已保存方案' })).toBeVisible();
 });

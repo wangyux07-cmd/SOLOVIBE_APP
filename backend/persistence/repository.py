@@ -73,10 +73,16 @@ class Repository:
             )).fetchone()
             action = await (await conn.execute('''SELECT * FROM solovibe_v1.actions
                 WHERE thread_id=%s ORDER BY created_at DESC LIMIT 1''', (thread,))).fetchone()
+            saved = await (await conn.execute('''SELECT action_id,plan_snapshot,saved_at
+                FROM solovibe_v1.saved_plans WHERE thread_id=%s ORDER BY saved_at DESC LIMIT 20''',
+                (thread,))).fetchall()
         return {'thread_id': str(row['thread_id']), 'snapshot': row['snapshot'], 'messages': messages,
                 'pending_run': pending,
                 'plan_set': {**plan_set['payload'], 'plan_set_id': str(plan_set['run_id'])} if plan_set else None,
                 'latest_action': public_action(action) if action else None,
+                'saved_plans': [{'action_id':str(item['action_id']),
+                                 'plan_snapshot':item['plan_snapshot'], 'saved_at':item['saved_at']}
+                                for item in saved],
                 'context_memory': {'summary_revision': summary['revision'] if summary else 0,
                                    'covered_until_sequence': summary['covered_until_sequence'] if summary else 0,
                                    'raw_messages_retained': True}}

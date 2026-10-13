@@ -64,6 +64,8 @@ async def main():
             count = await (await conn.execute('SELECT count(*) AS n FROM solovibe_v1.saved_plans WHERE action_id=%s',
                                               (save['action_id'],))).fetchone()
         assert count['n'] == 1
+        assert any(item['action_id'] == save['action_id'] for item in
+                   (await app.repo.read(owner, thread))['saved_plans'])
 
         # A newly started Python process must resume the persisted interrupt.
         cross = await app.prepare_action(owner, thread, str(uuid4()), plan_set_id, plan_id, 'save', revision)
@@ -83,6 +85,8 @@ async def main():
         assert handed['receipt']['kind'] == 'navigation_handoff_ready'
         assert handed['receipt']['url'].startswith('https://uri.amap.com/navigation?')
         assert 'mode=walk' in handed['receipt']['url']
+        assert any(item['action_id'] == save['action_id'] for item in
+                   (await app.repo.read(owner, thread))['saved_plans'])
         handoff_id = str(uuid4())
         recorded = await app.repo.actions.record_handoff(owner, nav['action_id'], handoff_id)
         assert recorded['handoff_requested_at'] is not None
