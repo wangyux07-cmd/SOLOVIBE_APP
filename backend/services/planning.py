@@ -296,7 +296,7 @@ class TavilyProvider:
                          'identity_status': 'unverified', 'relevance': 'venue_name_mentioned',
                          'observed_at': datetime.now(timezone.utc).isoformat()}
                         for item in data['results'] if isinstance(item, dict)
-                        and scalar(item.get('url')).startswith(('https://', 'http://'))
+                        and scalar(item.get('url')).startswith('https://')
                         and venue_mentioned(place, scalar(item.get('title')) + ' ' + scalar(item.get('content')))][:3]
             except (httpx.TimeoutException, httpx.TransportError) as exc:
                 failure = ProviderFailure('timeout' if isinstance(exc, httpx.TimeoutException) else 'network')
@@ -311,8 +311,10 @@ class TavilyProvider:
 
 
 class Planner:
-    def __init__(self, maps: AmapProvider, web: TavilyProvider | None = None):
+    def __init__(self, maps: AmapProvider, web: TavilyProvider | None = None,
+                 public=None, evidence_store=None):
         self.maps, self.web = maps, web
+        self.public, self.evidence_store = public, evidence_store
 
     async def collect(self, snapshot: ContextSnapshot):
         c = snapshot.constraints
@@ -452,16 +454,42 @@ class Planner:
         if not self.web or not self.web.key:
             for place in selected:
                 place['web_status'], place['web_sources'] = 'not_configured', []
-            return selected
-        semaphore = asyncio.Semaphore(2)
-        async def one(place):
-            async with semaphore:
-                try:
-                    place['web_sources'] = await self.web.search(city, place)
-                    place['web_status'] = 'results_unverified' if place['web_sources'] else 'empty'
-                except ProviderFailure as exc:
-                    place['web_status'], place['web_sources'] = exc.category, []
-        await asyncio.gather(*(one(place) for place in selected))
+        else:
+            semaphore = asyncio.Semaphore(2)
+            async def one(place):
+                async with semaphore:
+                    try:
+                        place['web_sources'] = await self.web.search(city, place)
+                        place['web_status'] = 'results_unverified' if place['web_sources'] else 'empty'
+                    except ProviderFailure as exc:
+                        place['web_status'], place['web_sources'] = exc.category, []
+            await asyncio.gather(*(one(place) for place in selected))
+        extraction_cache = {}
+        for place in selected:
+            place['public_info'] = {'status': 'no_official_source', 'sources': [],
+                                    'brand_menu_items': [], 'branch_menu_items': [],
+                                    'admission_prices': []}
+            if not self.public:
+                continue
+            try:
+                information = await self.public.collect(place, extraction_cache)
+                if self.evidence_store:
+                    await self.evidence_store.persist(place, information)
+                elif information['observations']:
+                    information['status'] = 'persistence_unavailable'
+                    information['brand_menu_items'] = []
+                    information['branch_menu_items'] = []
+                    information['admission_prices'] = []
+                place['public_info'] = {
+                    'status': information['status'],
+                    'sources': [{key: record[key] for key in ('observation_id','url','observed_at','scope',
+                                'source_domain','extract_status','field_scope')}
+                                for record in information['observations']],
+                    'brand_menu_items': information['brand_menu_items'],
+                    'branch_menu_items': information['branch_menu_items'],
+                    'admission_prices': information['admission_prices']}
+            except Exception:
+                place['public_info']['status'] = 'pipeline_unavailable'
         return selected
 
     def publish(self, snapshot: ContextSnapshot, selected, evidence):
@@ -479,6 +507,7 @@ class Planner:
                 unknowns.append('完整活动时长')
             facts = place.get('facts')
             plans.append({'plan_id': f'amap:{place["poi_id"]}', 'context_revision': snapshot.revision,
+                          'evidence_contract_version': 1,
                           'place': {key: place[key] for key in ('provider', 'poi_id', 'name', 'address', 'city', 'coordinate', 'category', 'source_url', 'observed_at')},
                           'route': route, 'return_route': return_route,
                           'origin': evidence.get('origin'), 'return_destination': evidence.get('return_destination'),
@@ -489,6 +518,7 @@ class Planner:
                                              'dwell_source': 'user_selected' if dwell is not None else 'unknown'},
                           'facts': facts, 'detail_status': place.get('detail_status'),
                           'web_status': place['web_status'], 'web_sources': place['web_sources'],
+                          'public_info': place.get('public_info'),
                           'feasibility': 'outbound_route_verified_other_facts_unknown',
                           'feasibility_checks': {'outbound_walk': 'pass', 'full_activity_time': full_status,
                                                  'budget': 'unknown', 'open_now': 'unknown'},
@@ -516,7 +546,9 @@ class Planner:
                 'provider_errors': evidence['errors']}
 
 
-def create_planner():
+def create_planner(evidence_store=None):
     from config import is_configured
+    from services.public_sources import OfficialEvidenceService
+    tavily_key = os.getenv('TAVILY_API_KEY', '').strip() if is_configured('TAVILY_API_KEY') else ''
     return Planner(AmapProvider(os.getenv('AMAP_API_KEY', '').strip() if is_configured('AMAP_API_KEY') else ''),
-                   TavilyProvider(os.getenv('TAVILY_API_KEY', '').strip() if is_configured('TAVILY_API_KEY') else ''))
+                   TavilyProvider(tavily_key), OfficialEvidenceService(tavily_key), evidence_store)

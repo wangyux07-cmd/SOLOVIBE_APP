@@ -6,7 +6,7 @@
 
 `POST /api/session` creates or reuses an anonymous browser session. The server sets an HTTP-only `solovibe_session` cookie. Every conversation, run, plan, and action read/write is scoped to its owner. The browser sends credentials with API requests. `GET /api/v1/health` reports service readiness; a configured key is not proof that the provider call succeeds.
 
-JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"stage4"}`. Invalid input is rejected by FastAPI validation. Allowed CORS origins come from `CORS_ORIGINS`; browser-originated POSTs from other origins receive `ORIGIN_DENIED`.
+JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"v3-2"}`. Invalid input is rejected by FastAPI validation. Allowed CORS origins come from `CORS_ORIGINS`; browser-originated POSTs from other origins receive `ORIGIN_DENIED`.
 
 ## Conversation and planning
 
@@ -27,11 +27,11 @@ A plan contains an Amap POI identity and address, independently queried outbound
 
 The origin request requires `request_id`, `expected_revision`, WGS84 `longitude`/`latitude`, and browser-reported `accuracy_m` (at most 300 m). The server uses Amap coordinate conversion and reverse geocoding before saving city, address, Amap coordinate, source, accuracy, and observation time. It requires the conversation owner, rejects stale revisions and active runs, and invalidates pending action confirmation. The browser requests location permission only after the user clicks. A browser-derived origin expires for planning and navigation after 30 minutes; the user can locate again or enter a place manually. Changing city or location text through chat clears the stored browser coordinate. The return destination defaults to the origin; `return_location_text` explicitly overrides it. `desired_dwell_minutes` is the user's plan, not an objective venue duration. The UI renders provider road polylines as a route sketch without a street basemap.
 
-## V3 evidence contract (schema introduced; response integration pending)
+## V3 public-source evidence contract
 
 `domain/evidence.py` defines `VenueIdentity`, `SourceObservation`, `VenueClaim`, `FeasibilityCheck`, and `ToolResult`. The additive tables `venue_identity`, `source_observation`, and `venue_claim` store public venue evidence independently of a user's conversation. Each observation has a source URL, scope, acquisition time, outcome, and optional short excerpt/hash. Each claim references one observation and carries field, value, scope, status, observation time, and optional expiry. A brand menu may be shown as a brand example; it must not pass a branch-specific constraint. Search leads never establish branch identity. A branch claim can affect a decision only if `check_branch_claim` verifies matching POI identity and source reference, successful acquisition, verified status, and freshness. Missing or stale facts remain `unknown`.
 
-The running plan JSON above remains unchanged in V3-0. When V3-2 connects claims to plans, it will add `evidence_contract_version: 1` and source/claim references without changing the existing plan and action IDs; clients must continue accepting old saved snapshots. No current endpoint claims to provide live inventory or a complete branch menu.
+Plans now include `evidence_contract_version: 1` and optional `public_info`. `public_info.sources` carries observation IDs, HTTPS URLs, domain, extraction status, field scope, and retrieval time. Menu items and admission prices carry claim/observation IDs and an explicit `brand` or `branch` scope. The UI labels brand menu items as examples, never as a confirmed branch selection, current price, or availability. Only approved official HTTPS hosts are sent to Tavily Extract; every URL is checked in both `results` and `failed_results`, even on HTTP 200. The database stores a source domain, status, content length, SHA-256, and short excerpt, but not the extracted page body. A matched branch page must be specifically cataloged with its exact Amap POI ID and contain the full venue name plus a distinctive address. Current pilot coverage is one brand menu and zero branch-level menus/prices; no endpoint provides live inventory or a complete branch menu. Old saved snapshots without `public_info` remain readable.
 
 ## Confirmed actions
 

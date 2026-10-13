@@ -105,6 +105,10 @@ CREATE TABLE IF NOT EXISTS solovibe_v1.source_observation (
  CHECK(scope <> 'branch' OR venue_id IS NOT NULL),
  CHECK(kind <> 'search_lead' OR scope <> 'branch')
 );
+ALTER TABLE solovibe_v1.source_observation ADD COLUMN IF NOT EXISTS source_domain text;
+ALTER TABLE solovibe_v1.source_observation ADD COLUMN IF NOT EXISTS extract_status text;
+ALTER TABLE solovibe_v1.source_observation ADD COLUMN IF NOT EXISTS field_scope text;
+ALTER TABLE solovibe_v1.source_observation ADD COLUMN IF NOT EXISTS content_length integer;
 CREATE TABLE IF NOT EXISTS solovibe_v1.venue_claim (
  claim_id uuid PRIMARY KEY,
  observation_id uuid NOT NULL REFERENCES solovibe_v1.source_observation,

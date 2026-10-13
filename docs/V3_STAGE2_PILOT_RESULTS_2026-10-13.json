@@ -1,0 +1,93 @@
+{
+  "cohort_version": 1,
+  "sample_count": 12,
+  "brand_menu_extracted": 1,
+  "branch_menu_or_price_verified": 0,
+  "branch_acceptance_target": 3,
+  "rows": [
+    {
+      "id": "cafe_01",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "brand_menu_extracted",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "cafe_02",
+      "amap_outcome": "success",
+      "candidate_count": 1,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "cafe_03",
+      "amap_outcome": "empty",
+      "candidate_count": 0,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "dining_01",
+      "amap_outcome": "empty",
+      "candidate_count": 0,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "dining_02",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "dining_03",
+      "amap_outcome": "success",
+      "candidate_count": 1,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "attraction_01",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "attraction_02",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "attraction_03",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "park_01",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "park_02",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    },
+    {
+      "id": "park_03",
+      "amap_outcome": "success",
+      "candidate_count": 3,
+      "official_source_status": "not_attempted_no_approved_source",
+      "branch_menu_or_price_verified": false
+    }
+  ]
+}

@@ -14,8 +14,8 @@ from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.7.0'
-STAGE = 'v3-1'
+VERSION = '0.8.0'
+STAGE = 'v3-2'
 COOKIE = 'solovibe_session'
 
 

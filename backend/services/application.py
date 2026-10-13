@@ -13,6 +13,7 @@ from agent_graph import build_graph
 from domain.errors import AppError
 from persistence.repository import Repository
 from persistence.actions import public_action
+from persistence.public_evidence import PublicEvidenceRepository
 from services.model_client import DeepSeekClient
 from services.planning import create_planner
 from services.planning import ProviderFailure
@@ -74,7 +75,7 @@ class Application:
             # also catches accounts that cannot actually run completions.
             await self.model.understand({},[], '你好')
             self.repo = Repository(self.pool)
-            self.planner = create_planner()
+            self.planner = create_planner(PublicEvidenceRepository(self.pool))
             self.graph = build_graph(self.repo,self.model,AsyncPostgresSaver(self.graph_pool),planner=self.planner)
             self.ready = True
             self.error = None
@@ -90,6 +91,8 @@ class Application:
             await self.planner.maps.close()
             if self.planner.web:
                 await self.planner.web.close()
+            if self.planner.public:
+                await self.planner.public.close()
         if self.model:
             await self.model.close()
         if self.graph_pool:
