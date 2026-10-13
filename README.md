@@ -4,7 +4,7 @@
 
 SoloVibe helps people decide what to do when they want to head out alone. It brings together how the user feels, where they are, and practical constraints such as time, budget, and walking distance to suggest a small set of actionable city activities. Once the user confirms a specific action, the agent helps them take the next step.
 
-> **Project status: redesign implementation in progress.** Stages 0–4 and V3-0/V3-1 are implemented on `Refactor`. V3-2 extracts official-page content into source-bound claims; its branch coverage acceptance remains **0/3**. V3-3 adds branch-offer parsing, expiry-aware display, option-budget hints, recorded-hours inference, and offer rechecks before confirmed actions. No fixed pilot currently has a qualifying live offer (**0/1**), so the V3-3 external-source gate remains open. V3-4 has an opt-in, read-only merchant integration contract; no merchant authorization is configured and its real-branch acceptance remains **0/1**. V3-5 adds versioned direct adjustments, conservative evidence reuse, targeted POI rechecks, recovery status, and user-reported feedback. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the delivery gates.
+> **Project status: release engineering in progress.** Stages 0–4 and V3-0/V3-1 are implemented on `Refactor`. V3-2 extracts official-page content into source-bound claims; its branch coverage acceptance remains **0/3**. V3-3 adds branch-offer parsing, expiry-aware display, option-budget hints, recorded-hours inference, and offer rechecks before confirmed actions. No fixed pilot currently has a qualifying live offer (**0/1**), so the V3-3 external-source gate remains open. V3-4 has an opt-in, read-only merchant integration contract; no merchant authorization is configured and its real-branch acceptance remains **0/1**. V3-5 has passed real database and browser checks. V3-6 adds lifecycle and CI controls; backup restore rehearsal and production deployment remain open. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the delivery gates.
 
 V3-0 fixed a 12-venue Shanghai pilot cohort and added typed source/claim contracts. V3-1 supports user-initiated browser location, independent round-trip routes, and a full-trip time check. V3-2 verified Tavily Extract against a Starbucks China official menu and stored scoped observations/claims in PostgreSQL. V3-3 consumes only complete, current, branch-matched offers; without such an offer, cost and live opening status remain unknown. V3-4 displays branch live status only from a configured, authorized merchant bridge with matching identity and a short validity window. V3-5 gives the user direct versioned edits, targeted POI rechecks, server-backed recovery state, and clearly labeled self-reported feedback. See the [V3-0 record](docs/V3_STAGE0_EVIDENCE_2026-10-13.md), [V3-1 report](docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md), [V3-2 report](docs/V3_STAGE2_PUBLIC_SOURCES_2026-10-13.md), [V3-3 report](docs/V3_STAGE3_OFFERS_2026-10-13.md), [V3-4 report](docs/V3_STAGE4_AUTHORIZED_MERCHANT_2026-10-13.md), and [V3-5 report](docs/V3_STAGE5_ADJUSTMENT_RECOVERY_2026-10-13.md).
 
@@ -76,7 +76,7 @@ LangGraph coordinates node execution, conditional routing, and recovery. The mod
 | 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Implemented; live compaction, raw-message retention, newer correction priority, and cross-process summary recovery verified |
 | 3 · Real activity options | Amap POI, detail and walking route, Tavily links, bounded screening, and persisted options | Implemented; real model/database/map/search/browser flow verified |
 | 4 · Confirmation and actions | Version-bound proposal, durable LangGraph interrupt, atomic confirmation, plan saving, navigation handoff, recovery | Implemented; real database/map and browser flows verified. Merchant booking entry points remain unavailable without verified provider data |
-| 5 · Integration and release | External-data evidence, local adjustment, recovery, lifecycle, and deployment | In progress; the external-data increment is verified, while local adjustment and release work remain |
+| 5 · Integration and release | External-data evidence, local adjustment, recovery, lifecycle, and deployment | V3-5 passed real database/browser checks; V3-6 lifecycle and CI are implemented. Backup restore rehearsal, production deployment, and external merchant coverage remain open. |
 
 **Branches:** `main` retains the historical prototype. The active redesign is on [`Refactor`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/Refactor). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
 
@@ -118,7 +118,7 @@ The frontend development server proxies `/api` requests to the local backend. Co
 # Backend baseline tests, frontend type checking, and production build
 powershell -NoProfile -File scripts/check.ps1
 
-# Run after starting both services; the current browser configuration uses Microsoft Edge
+# Playwright starts both local services when needed; Windows uses Microsoft Edge
 npm run test:e2e --workspace frontend
 ```
 
@@ -131,6 +131,8 @@ The Stage 2 live check uses a second backend on port 8001 with `SOLOVIBE_UNDERST
 For Stage 3, add `AMAP_API_KEY` and optionally `TAVILY_API_KEY` to `backend/.env`, rerun `python scripts/migrate_stage1.py`, then run `python scripts/verify_stage3_live.py --require-options`. That test makes actual model, map, and optional search calls and requires 1–3 persisted options with real walking-route evidence. Without a map key, it reports `maps_not_configured` and zero options. See [Stage 3 progress and verification limits](docs/STAGE3_PROGRESS_2026-10-12.md).
 
 For Stage 4, rerun `python scripts/migrate_stage1.py`, then run `python scripts/verify_stage4_live.py`. It creates a fresh conversation with real providers, checks an exact selected plan, saves it once despite duplicate confirmation, revalidates a navigation route, and verifies rejection and invalidation on new input. To check the real UI, start both services and run `$env:SOLOVIBE_LIVE_STAGE4='1'; npm run test:e2e --workspace frontend -- --grep 'real browser confirms'` in PowerShell. This covers saving, navigation-link preparation, and the recorded browser handoff. See [Stage 4 progress and verification limits](docs/STAGE4_PROGRESS_2026-10-12.md).
+
+For V3-5/V3-6, run `python scripts/verify_v3_stage5_live.py` to check real adjustments, recovery, feedback and deletion. Run `python scripts/verify_v3_cleanup_live.py` for synthetic expiry cleanup. To repeat the real browser route with configured providers, set `SOLOVIBE_LIVE_V3=1` and run `npm run test:e2e --workspace frontend -- --grep 'real browser completes location'`. These opt-in checks consume provider quota. `python scripts/cleanup_expired.py` previews expired sessions; `--apply` performs the purge. See the [V3-6 release record](docs/V3_STAGE6_RELEASE_2026-10-13.md) for production settings and backup gates.
 
 ## Design and Development Documents
 
@@ -147,6 +149,7 @@ The following documents are currently written in Chinese and are linked from the
 - [V3-3 offers, schedule inference, budget decisions, and coverage](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE3_OFFERS_2026-10-13.md)
 - [V3-4 authorized merchant bridge and external acceptance gap](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE4_AUTHORIZED_MERCHANT_2026-10-13.md)
 - [V3-5 adjustments, recovery, and user-reported feedback](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE5_ADJUSTMENT_RECOVERY_2026-10-13.md)
+- [V3-6 lifecycle and release checks](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE6_RELEASE_2026-10-13.md)
 - [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
 - [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
 - [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)

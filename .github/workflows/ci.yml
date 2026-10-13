@@ -1,0 +1,27 @@
+name: Contract and browser checks
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: python -m pip install -r backend/requirements-dev.txt
+      - run: npm ci
+      - run: python -m compileall -q backend scripts
+      - run: python -m pytest -q tests/baseline
+      - run: npm run lint && npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e --workspace frontend
+        env:
+          CI: 'true'

@@ -235,6 +235,19 @@ export default function StageOneApp() {
     finally { setBusy(false); }
   }
 
+  async function deleteConversation() {
+    if (!conversation || busy || !window.confirm('永久删除此会话、方案、反馈和恢复记录？')) return;
+    setBusy(true); setError('');
+    try {
+      await request(`/api/conversations/${conversation.thread_id}`, { method: 'DELETE' });
+      bootstrapPromise = null;
+      const created = await request<Conversation>('/api/conversations', post);
+      setConversation(created); setAction(null); setLast(null); setTrace([]); setTimeline([]);
+      setInput(''); setInvalidLivePlanIds([]);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '删除会话失败。'); }
+    finally { setBusy(false); }
+  }
+
   async function prepareAction(plan: Plan, kind: 'save' | 'navigate') {
     if (!conversation?.plan_set?.plan_set_id || busy) return;
     setBusy(true); setError('');
@@ -288,7 +301,7 @@ export default function StageOneApp() {
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">V3-5 · 条件调整与恢复</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">V3-6 · 数据与可靠性</span>
       </header>
 
       <section className="py-9">
@@ -299,7 +312,7 @@ export default function StageOneApp() {
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 md:p-7">
-          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-medium">对话</h2><button type="button" onClick={() => void newConversation()} disabled={!health?.ready || busy} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-40">新建会话</button></div>
+          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-medium">对话</h2><div className="flex gap-2"><button type="button" onClick={() => void deleteConversation()} disabled={!conversation || busy} className="rounded-lg border border-orange-200/30 px-3 py-2 text-xs text-orange-100 disabled:opacity-40">删除此会话</button><button type="button" onClick={() => void newConversation()} disabled={!health?.ready || busy} className="rounded-lg border border-white/15 px-3 py-2 text-xs disabled:opacity-40">新建会话</button></div></div>
           <div className="mt-6 min-h-64 space-y-4" aria-live="polite">
             {!conversation?.messages.length && <p className="text-sm leading-7 text-[#a8b6ac]">可以先说：“我在上海徐汇，今天有点累，预算 80 元，只有一小时。”</p>}
             {conversation?.messages.map(item => <div key={item.message_id} className={`rounded-xl p-4 text-sm leading-7 ${item.role === 'user' ? 'ml-7 bg-[#bdd7a2]/10' : 'mr-7 bg-white/[0.06]'}`}><div className="mb-1 text-xs text-[#9bb193]">{item.role === 'user' ? '你' : 'SoloVibe'}</div>{item.content}</div>)}
@@ -386,7 +399,7 @@ export default function StageOneApp() {
         <div className="mt-4 flex flex-wrap gap-2"><select aria-label="反馈对应方案" value={feedbackPlanId} onChange={event => setFeedbackPlanId(event.target.value)} className="rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs"><option value="">选择地点</option>{conversation.plan_set.plans.map(plan => <option key={plan.plan_id} value={plan.plan_id}>{plan.place.name}</option>)}</select><select aria-label="反馈类型" value={feedbackCategory} onChange={event => setFeedbackCategory(event.target.value)} className="rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs"><option value="considered">考虑过</option><option value="went">我说我去了</option><option value="did_not_go">我说我没去</option><option value="other">其他</option></select></div>
         <textarea aria-label="反馈内容" maxLength={500} rows={2} value={feedbackNote} onChange={event => setFeedbackNote(event.target.value)} className="mt-3 w-full rounded-lg border border-white/15 bg-[#19231d] p-3 text-sm" placeholder="写下你的感受或结果（最多 500 字）" /><button type="button" disabled={busy || !feedbackPlanId || !feedbackNote.trim()} onClick={() => void submitFeedback()} className="mt-2 rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存自述反馈</button>
       </section>}
-      <footer className="mt-10 text-xs text-[#84938a]">V3-5 开发预览 · 条件修改会产生新方案；反馈为用户自述。商家状态和来源资料可能变化，出发前请核实。</footer>
+      <footer className="mt-10 text-xs text-[#84938a]">V3-6 开发预览 · 条件修改会产生新方案；反馈为用户自述。会话及其恢复记录可删除；商家状态和来源资料可能变化，出发前请核实。</footer>
     </div>
   </main>;
 }

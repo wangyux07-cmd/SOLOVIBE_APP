@@ -1,4 +1,5 @@
-"""Stage 1 HTTP boundary. Every accepted chat request runs the compiled graph."""
+"""SoloVibe HTTP boundary. Every accepted chat request runs the compiled graph."""
+import os
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 from uuid import UUID
@@ -6,17 +7,18 @@ from uuid import UUID
 from fastapi import FastAPI, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent_graph import build_graph
-from config import configuration_status, cors_origins
+from config import configuration_status, cors_origins, cookie_secure, allowed_hosts
 from domain.context import ContextSnapshot
 from domain.errors import AppError
 from services.application import Application
 
-VERSION = '0.11.0'
-STAGE = 'v3-5'
+VERSION = '0.12.0'
+STAGE = 'v3-6'
 COOKIE = 'solovibe_session'
 
 
@@ -112,13 +114,16 @@ def create_app():
     app = FastAPI(title='SoloVibe API', version=VERSION, lifespan=lifespan)
     app.state.runtime = runtime
     origins = cors_origins()
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts())
+    if os.getenv('APP_ENV', 'development').lower() == 'production':
+        cookie_secure('https')
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True,
-                       allow_methods=['GET', 'POST'], allow_headers=['Content-Type'])
+                       allow_methods=['GET', 'POST', 'DELETE'], allow_headers=['Content-Type'])
 
     @app.middleware('http')
     async def boundaries(request, call_next):
         origin = request.headers.get('origin')
-        if request.method == 'POST' and origin and origin.rstrip('/') not in origins:
+        if request.method in ('POST', 'DELETE') and origin and origin.rstrip('/') not in origins:
             return JSONResponse(status_code=403, content={'error':{'code':'ORIGIN_DENIED','message':'请求来源不在允许列表中。'}})
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
@@ -175,20 +180,27 @@ def create_app():
     async def session(request:Request,response:Response):
         runtime.require_ready()
         _,token = await runtime.repo.session(request.cookies.get(COOKIE))
-        response.set_cookie(COOKIE,token,max_age=30*86400,httponly=True,samesite='lax',secure=request.url.scheme=='https')
+        response.set_cookie(COOKIE,token,max_age=30*86400,httponly=True,samesite='lax',secure=cookie_secure(request.url.scheme))
         return {'authenticated':True,'mode':'anonymous_browser_session'}
 
     @app.get('/api/conversations')
     async def conversations(request:Request):
-        return {'conversations':jsonable_encoder(await runtime.repo.list_threads(await owner(request)))}
+        actor = await owner(request)
+        return {'conversations':jsonable_encoder(await runtime.repo.list_threads(actor))}
 
     @app.post('/api/conversations')
     async def new_conversation(request:Request):
-        return await runtime.repo.create(await owner(request))
+        actor = await owner(request)
+        return await runtime.repo.create(actor)
 
     @app.get('/api/conversations/{thread_id}')
     async def conversation(thread_id:UUID,request:Request):
         return await runtime.read_conversation(await owner(request),str(thread_id))
+
+    @app.delete('/api/conversations/{thread_id}')
+    async def delete_conversation(thread_id:UUID,request:Request):
+        actor = await owner(request)
+        return await runtime.repo.delete_owned(actor,str(thread_id))
 
     @app.get('/api/conversations/{thread_id}/plans')
     async def plans(thread_id:UUID,request:Request):
@@ -210,7 +222,8 @@ def create_app():
     @app.get('/api/actions/{action_id}')
     async def action(action_id:UUID,request:Request):
         from persistence.actions import public_action
-        return public_action(await runtime.repo.actions.get(await owner(request),str(action_id)))
+        actor = await owner(request)
+        return public_action(await runtime.repo.actions.get(actor,str(action_id)))
 
     @app.post('/api/actions/{action_id}/decision')
     async def decide_action(action_id:UUID,body:DecisionRequest,request:Request):
@@ -224,8 +237,9 @@ def create_app():
     @app.post('/api/actions/{action_id}/handoff')
     async def handoff(action_id:UUID,body:HandoffRequest,request:Request):
         from persistence.actions import public_action
+        actor = await owner(request)
         return public_action(await runtime.repo.actions.record_handoff(
-            await owner(request),str(action_id),str(body.request_id)))
+            actor,str(action_id),str(body.request_id)))
 
     @app.post('/api/chat')
     async def chat(body:ChatRequest,request:Request):
@@ -249,19 +263,23 @@ def create_app():
 
     @app.get('/api/conversations/{thread_id}/runs/{run_id}')
     async def run_status(thread_id:UUID,run_id:UUID,request:Request):
-        return await runtime.repo.run_status(await owner(request),str(thread_id),run_id=str(run_id))
+        actor = await owner(request)
+        return await runtime.repo.run_status(actor,str(thread_id),run_id=str(run_id))
 
     @app.get('/api/conversations/{thread_id}/requests/{request_id}')
     async def request_status(thread_id:UUID,request_id:UUID,request:Request):
-        return await runtime.repo.run_status(await owner(request),str(thread_id),request_id=str(request_id))
+        actor = await owner(request)
+        return await runtime.repo.run_status(actor,str(thread_id),request_id=str(request_id))
 
     @app.get('/api/conversations/{thread_id}/timeline')
     async def timeline(thread_id:UUID,request:Request):
-        return {'events':await runtime.repo.timeline(await owner(request),str(thread_id))}
+        actor = await owner(request)
+        return {'events':await runtime.repo.timeline(actor,str(thread_id))}
 
     @app.post('/api/conversations/{thread_id}/feedback')
     async def feedback(thread_id:UUID,body:FeedbackRequest,request:Request):
-        row = await runtime.repo.submit_feedback(await owner(request),str(thread_id),
+        actor = await owner(request)
+        row = await runtime.repo.submit_feedback(actor,str(thread_id),
             str(body.request_id),str(body.plan_set_id),body.plan_id,body.category,body.note)
         return {'feedback_id':str(row['feedback_id']), 'plan_id':row['plan_id'],
                 'category':row['category'], 'note':row['note'],
@@ -269,7 +287,8 @@ def create_app():
 
     @app.get('/api/conversations/{thread_id}/runs/{run_id}/trace')
     async def trace(thread_id:UUID,run_id:UUID,request:Request):
-        return {'events':await runtime.repo.trace(await owner(request),str(thread_id),str(run_id))}
+        actor = await owner(request)
+        return {'events':await runtime.repo.trace(actor,str(thread_id),str(run_id))}
 
     @app.post('/api/v1/stream_chat')
     @app.post('/api/v1/threads/{thread_id}/resume')

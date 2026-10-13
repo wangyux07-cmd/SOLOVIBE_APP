@@ -45,4 +45,25 @@ def cors_origins() -> list[str]:
     origins = [item.strip().rstrip("/") for item in os.getenv("CORS_ORIGINS", default).split(",") if item.strip()]
     if "*" in origins:
         raise ValueError("CORS_ORIGINS must contain explicit origins, not '*'")
+    if os.getenv('APP_ENV', 'development').lower() == 'production' and (
+            not origins or any(not origin.startswith('https://') for origin in origins)):
+        raise ValueError('Production CORS_ORIGINS must contain explicit HTTPS origins')
     return origins
+
+
+def cookie_secure(request_scheme: str) -> bool:
+    """A TLS-terminating proxy can make the internal request scheme HTTP."""
+    configured = os.getenv('SESSION_COOKIE_SECURE', '').strip().lower()
+    if configured in ('true', '1'):
+        return True
+    if os.getenv('APP_ENV', 'development').lower() == 'production':
+        raise ValueError('Production requires SESSION_COOKIE_SECURE=true')
+    return request_scheme == 'https'
+
+
+def allowed_hosts() -> list[str]:
+    values = [item.strip() for item in os.getenv('PUBLIC_HOSTS', '').split(',') if item.strip()]
+    if os.getenv('APP_ENV', 'development').lower() == 'production' and (
+            not values or '*' in values or any('/' in value for value in values)):
+        raise ValueError('Production requires explicit PUBLIC_HOSTS without wildcards or paths')
+    return values or ['127.0.0.1', 'localhost', 'testserver']

@@ -60,6 +60,40 @@ class Repository:
                 "SELECT thread_id,created_at FROM solovibe_v1.conversations WHERE owner_id=%s ORDER BY created_at DESC LIMIT 50", (owner,),
             )).fetchall()
 
+    async def delete_owned(self, owner, thread):
+        """Atomically erase one owner's business rows and native LangGraph state."""
+        async with self.guard(owner, thread):
+            async with self.pool.connection() as conn, conn.transaction():
+                row = await (await conn.execute('''SELECT thread_id FROM solovibe_v1.conversations
+                    WHERE thread_id=%s AND owner_id=%s FOR UPDATE''', (thread, owner))).fetchone()
+                if not row:
+                    raise AppError('NOT_FOUND', '会话不存在或不属于当前浏览器。', 404)
+                for table in ('checkpoint_writes', 'checkpoint_blobs', 'checkpoints'):
+                    await conn.execute(f'DELETE FROM solovibe_graph.{table} WHERE thread_id=%s', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.user_feedback WHERE thread_id=%s', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.saved_plans WHERE thread_id=%s', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.actions WHERE thread_id=%s', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.plan_sets WHERE thread_id=%s', (thread,))
+                await conn.execute('''DELETE FROM solovibe_v1.node_events WHERE run_id IN
+                    (SELECT run_id FROM solovibe_v1.runs WHERE thread_id=%s)''', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.messages WHERE thread_id=%s', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.rolling_summaries WHERE thread_id=%s', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.runs WHERE thread_id=%s', (thread,))
+                await conn.execute('DELETE FROM solovibe_v1.conversations WHERE thread_id=%s', (thread,))
+        return {'deleted': True}
+
+    async def expired_sessions(self, limit=100):
+        async with self.pool.connection() as conn:
+            return await (await conn.execute('''SELECT owner_id FROM solovibe_v1.sessions
+                WHERE expires_at<=now() ORDER BY expires_at LIMIT %s''', (limit,))).fetchall()
+
+    async def finish_expired_session(self, owner):
+        async with self.pool.connection() as conn:
+            result = await conn.execute('''DELETE FROM solovibe_v1.sessions s
+                WHERE owner_id=%s AND expires_at<=now() AND NOT EXISTS
+                (SELECT 1 FROM solovibe_v1.conversations c WHERE c.owner_id=s.owner_id)''', (owner,))
+        return result.rowcount == 1
+
     async def read(self, owner, thread):
         async with self.pool.connection() as conn:
             row = await (await conn.execute("SELECT * FROM solovibe_v1.conversations WHERE thread_id=%s AND owner_id=%s", (thread, owner))).fetchone()

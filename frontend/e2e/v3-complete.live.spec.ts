@@ -1,0 +1,32 @@
+import { test, expect } from '@playwright/test';
+
+test('real browser completes location, routes, source, adjustment and confirmed save', async ({ page, context }) => {
+  test.skip(process.env.SOLOVIBE_LIVE_V3 !== '1', 'Opt-in: uses real model, Amap, Tavily and database');
+  test.setTimeout(300_000);
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ longitude: 121.435, latitude: 31.193, accuracy: 18 });
+  await page.goto('/');
+  await expect(page.getByText('数据库与模型启动检查已通过')).toBeVisible({ timeout: 40_000 });
+  await page.getByRole('button', { name: '新建会话' }).click();
+  await page.getByRole('button', { name: '使用当前位置' }).click();
+  await expect(page.getByText(/已记录：上海市/)).toBeVisible({ timeout: 40_000 });
+  await page.getByLabel('输入出行需求').fill('预算80元，可用时间120分钟，最多步行30分钟，只想去星巴克喝咖啡，计划停留30分钟，请规划。');
+  await page.getByRole('button', { name: '发送消息' }).click();
+  await expect(page.getByRole('heading', { name: '可考虑的地点' })).toBeVisible({ timeout: 120_000 });
+  const first = page.getByRole('article').filter({ hasText: '星巴克' }).first();
+  await expect(first.getByText(/返程步行约/)).toBeVisible();
+  await expect(first.getByRole('img', { name: /高德步行道路折线示意/ }).locator('polyline')).toHaveCount(2);
+  await expect(first.getByText('品牌菜单示例 · 未证实本分店有售或现价')).toBeVisible();
+  await page.getByLabel('条件新值').fill('60');
+  await page.getByRole('button', { name: '重新规划' }).click();
+  await expect(page.getByText('本次变化：预算')).toBeVisible({ timeout: 120_000 });
+  await page.getByRole('button', { name: '保存此方案' }).first().click();
+  await expect(page.getByRole('region', { name: '行动确认' })).toContainText('请核对地点');
+  await page.getByRole('button', { name: '确认', exact: true }).click();
+  await expect(page.getByText('方案已保存。')).toBeVisible({ timeout: 40_000 });
+  await page.reload();
+  await expect(page.getByRole('region', { name: '已保存方案' })).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: '删除此会话' }).click();
+  await expect(page.getByText('数据库中的结构化状态 · 版本 0')).toBeVisible();
+});

@@ -6,7 +6,7 @@
 
 `POST /api/session` creates or reuses an anonymous browser session. The server sets an HTTP-only `solovibe_session` cookie. Every conversation, run, plan, and action read/write is scoped to its owner. The browser sends credentials with API requests. `GET /api/v1/health` reports service readiness; a configured key is not proof that the provider call succeeds.
 
-JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"v3-5"}`. Invalid input is rejected by FastAPI validation. Allowed CORS origins come from `CORS_ORIGINS`; browser-originated POSTs from other origins receive `ORIGIN_DENIED`.
+JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"v3-6"}`. Invalid input is rejected by FastAPI validation. Allowed CORS origins come from `CORS_ORIGINS`; browser-originated POSTs and DELETEs from other origins receive `ORIGIN_DENIED`.
 
 ## Conversation and planning
 
@@ -15,6 +15,7 @@ JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"v3-
 | `GET /api/conversations` | List owned conversations. |
 | `POST /api/conversations` | Create an owned conversation. |
 | `GET /api/conversations/{thread_id}` | Read messages, structured snapshot, current plan set, pending run, latest action, and saved plans. |
+| `DELETE /api/conversations/{thread_id}` | Permanently erase the owned conversation, plans, feedback, actions, messages, summary, runs, and native LangGraph checkpoints in one database transaction. |
 | `POST /api/chat` | Run the compiled LangGraph chat branch; synchronous JSON response. |
 | `POST /api/conversations/{thread_id}/origin` | After a user-clicked browser location permission grant, convert WGS84 coordinates to Amap coordinates, reverse-geocode, and version the origin. |
 | `POST /api/conversations/{thread_id}/adjustments` | Apply one explicit, version-bound condition edit and create a new plan set. |
