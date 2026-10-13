@@ -6,6 +6,8 @@ SoloVibe helps people decide what to do when they want to head out alone. It bri
 
 > **Project status: redesign implementation in progress.** Stages 0–4 are implemented on `Refactor`, and Stage 5A has verified real DeepSeek, Supabase PostgreSQL, Amap, Tavily, and browser flows. Amap provides branch and route evidence; live opening status, branch menus, offers, and availability have not been implemented. [Redesigned Plan V3](docs/AI_AGENT_REDESIGNED_PLAN_V3.md) defines the next work and its evidence requirements.
 
+V3-0 now has a fixed 12-venue Shanghai pilot cohort, typed source/claim contracts, and additive evidence tables. The [V3-0 delivery record](docs/V3_STAGE0_EVIDENCE_2026-10-13.md) distinguishes real Amap search candidates from verified branch identities. V3-1 location and round-trip work is next.
+
 ## Why SoloVibe?
 
 A list of nearby places does not always help someone make a decision. A useful suggestion also needs to account for their energy, available time, budget, willingness to walk, and preferences for spending time alone.
@@ -139,6 +141,7 @@ The following documents are currently written in Chinese and are linked from the
 - [Redesigned Plan V2: prior release-oriented implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V2.md)
 - [Redesigned Plan V3: complete next-stage implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V3.md)
 - [External information acquisition plan: maps, public pages, merchants, and availability](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_INFORMATION_ACQUISITION_PLAN_V2.md)
+- [V3-0 evidence contract and real pilot baseline](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE0_EVIDENCE_2026-10-13.md)
 - [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
 - [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
 - [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)

@@ -20,6 +20,12 @@ async def main():
                 sql = (Path(__file__).resolve().parents[1]/'backend/persistence/schema.sql').read_text(encoding='utf-8')
                 async with conn.transaction():
                     await conn.execute(sql)
+                evidence_tables = await (await conn.execute('''SELECT
+                    to_regclass('solovibe_v1.venue_identity') IS NOT NULL AS venue_identity,
+                    to_regclass('solovibe_v1.source_observation') IS NOT NULL AS source_observation,
+                    to_regclass('solovibe_v1.venue_claim') IS NOT NULL AS venue_claim''')).fetchone()
+                if not all(evidence_tables.values()):
+                    raise RuntimeError('evidence tables missing after migration')
                 graph_pool = make_pool(database_dsn(),graph=True)
                 async with graph_pool:
                     await AsyncPostgresSaver(graph_pool).setup()
@@ -27,6 +33,7 @@ async def main():
                 await conn.execute('SELECT pg_advisory_unlock(731415)')
     print(json.dumps({'migrated':True,'business_schema':'solovibe_v1',
                       'summary_table':'solovibe_v1.rolling_summaries',
+                      'evidence_tables': dict(evidence_tables),
                       'checkpoint_schema':'solovibe_graph'}))
 
 

@@ -1,0 +1,271 @@
+{
+  "cohort_version": 1,
+  "queried_at": "2026-10-13T12:16:33.600788+00:00",
+  "provider": "amap",
+  "rows": [
+    {
+      "id": "cafe_01",
+      "query": "星巴克港汇恒隆广场店",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B0L2MLZJRQ",
+          "name": "星巴克(港汇二店)",
+          "address": "虹桥路1号上海港汇恒隆广场B1层",
+          "coordinate": "121.436925,31.195225",
+          "source_url": "https://uri.amap.com/marker?position=121.436925%2C31.195225&name=%E6%98%9F%E5%B7%B4%E5%85%8B%28%E6%B8%AF%E6%B1%87%E4%BA%8C%E5%BA%97%29"
+        },
+        {
+          "poi_id": "B0HGMX0175",
+          "name": "星巴克(港汇恒隆广场北座店)",
+          "address": "徐家汇街道虹桥路1号港汇恒隆广场北座1楼165A/178铺位",
+          "coordinate": "121.436820,31.195102",
+          "source_url": "https://uri.amap.com/marker?position=121.436820%2C31.195102&name=%E6%98%9F%E5%B7%B4%E5%85%8B%28%E6%B8%AF%E6%B1%87%E6%81%92%E9%9A%86%E5%B9%BF%E5%9C%BA%E5%8C%97%E5%BA%A7%E5%BA%97%29"
+        },
+        {
+          "poi_id": "B0MUYUQ83X",
+          "name": "星巴克咖啡(港汇二店)(装修中)",
+          "address": "徐家汇虹桥路1号港汇恒隆广场1层万裕食街101号",
+          "coordinate": "121.437025,31.195225",
+          "source_url": "https://uri.amap.com/marker?position=121.437025%2C31.195225&name=%E6%98%9F%E5%B7%B4%E5%85%8B%E5%92%96%E5%95%A1%28%E6%B8%AF%E6%B1%87%E4%BA%8C%E5%BA%97%29%28%E8%A3%85%E4%BF%AE%E4%B8%AD%29"
+        }
+      ]
+    },
+    {
+      "id": "cafe_02",
+      "query": "MANNER COFFEE美罗城店",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B0G02D5KMB",
+          "name": "Manner Coffee(美罗城店)",
+          "address": "肇嘉浜路1111号美罗城B1层",
+          "coordinate": "121.439587,31.192815",
+          "source_url": "https://uri.amap.com/marker?position=121.439587%2C31.192815&name=Manner%20Coffee%28%E7%BE%8E%E7%BD%97%E5%9F%8E%E5%BA%97%29"
+        }
+      ]
+    },
+    {
+      "id": "cafe_03",
+      "query": "Seesaw Coffee港汇恒隆广场店",
+      "outcome": "empty",
+      "candidates": []
+    },
+    {
+      "id": "dining_01",
+      "query": "小杨生煎美罗城店",
+      "outcome": "empty",
+      "candidates": []
+    },
+    {
+      "id": "dining_02",
+      "query": "老乡鸡徐家汇店",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B0HK5DKF6W",
+          "name": "老乡鸡(上海徐汇绿地缤纷城店)",
+          "address": "龙华中路759号负一层(龙华中路地铁站5号口步行120米)",
+          "coordinate": "121.457160,31.182856",
+          "source_url": "https://uri.amap.com/marker?position=121.457160%2C31.182856&name=%E8%80%81%E4%B9%A1%E9%B8%A1%28%E4%B8%8A%E6%B5%B7%E5%BE%90%E6%B1%87%E7%BB%BF%E5%9C%B0%E7%BC%A4%E7%BA%B7%E5%9F%8E%E5%BA%97%29"
+        },
+        {
+          "poi_id": "B0G0R4A55O",
+          "name": "老乡鸡(上海徐汇万科中心店)",
+          "address": "南宁路980号一层01单元",
+          "coordinate": "121.433718,31.157825",
+          "source_url": "https://uri.amap.com/marker?position=121.433718%2C31.157825&name=%E8%80%81%E4%B9%A1%E9%B8%A1%28%E4%B8%8A%E6%B5%B7%E5%BE%90%E6%B1%87%E4%B8%87%E7%A7%91%E4%B8%AD%E5%BF%83%E5%BA%97%29"
+        },
+        {
+          "poi_id": "B0JR3HF9F5",
+          "name": "老乡鸡(上海徐汇新宜街店)",
+          "address": "宜山路704号(桂林路地铁站4号口旁)",
+          "coordinate": "121.417086,31.174992",
+          "source_url": "https://uri.amap.com/marker?position=121.417086%2C31.174992&name=%E8%80%81%E4%B9%A1%E9%B8%A1%28%E4%B8%8A%E6%B5%B7%E5%BE%90%E6%B1%87%E6%96%B0%E5%AE%9C%E8%A1%97%E5%BA%97%29"
+        }
+      ]
+    },
+    {
+      "id": "dining_03",
+      "query": "和府捞面美罗城店",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B0H2P5PG38",
+          "name": "和府捞面(美罗城店)",
+          "address": "肇嘉浜路1111号美罗城3F层3-12(西门进入直行20m,扶梯上到3F可见)",
+          "coordinate": "121.439167,31.192668",
+          "source_url": "https://uri.amap.com/marker?position=121.439167%2C31.192668&name=%E5%92%8C%E5%BA%9C%E6%8D%9E%E9%9D%A2%28%E7%BE%8E%E7%BD%97%E5%9F%8E%E5%BA%97%29"
+        }
+      ]
+    },
+    {
+      "id": "attraction_01",
+      "query": "上海电影博物馆",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B001575OGK",
+          "name": "上海电影博物馆",
+          "address": "漕溪北路595号A座(上海体育馆地铁站1号口步行450米)",
+          "coordinate": "121.438473,31.186294",
+          "source_url": "https://uri.amap.com/marker?position=121.438473%2C31.186294&name=%E4%B8%8A%E6%B5%B7%E7%94%B5%E5%BD%B1%E5%8D%9A%E7%89%A9%E9%A6%86"
+        },
+        {
+          "poi_id": "B0FFHG97X3",
+          "name": "上海电影博物馆停车场",
+          "address": "漕溪北路595号上海电影广场",
+          "coordinate": "121.438772,31.186206",
+          "source_url": "https://uri.amap.com/marker?position=121.438772%2C31.186206&name=%E4%B8%8A%E6%B5%B7%E7%94%B5%E5%BD%B1%E5%8D%9A%E7%89%A9%E9%A6%86%E5%81%9C%E8%BD%A6%E5%9C%BA"
+        },
+        {
+          "poi_id": "B0HRPC530Q",
+          "name": "上海电影博物馆售票处",
+          "address": "漕溪北路595号上海电影博物馆",
+          "coordinate": "121.438242,31.186124",
+          "source_url": "https://uri.amap.com/marker?position=121.438242%2C31.186124&name=%E4%B8%8A%E6%B5%B7%E7%94%B5%E5%BD%B1%E5%8D%9A%E7%89%A9%E9%A6%86%E5%94%AE%E7%A5%A8%E5%A4%84"
+        }
+      ]
+    },
+    {
+      "id": "attraction_02",
+      "query": "徐家汇天主堂",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B0H3TUK613",
+          "name": "天主教上海教区徐家汇圣依纳爵主教座堂(不对外开放)",
+          "address": "蒲西路158号(徐家汇地铁站8号口步行170米)",
+          "coordinate": "121.436099,31.191164",
+          "source_url": "https://uri.amap.com/marker?position=121.436099%2C31.191164&name=%E5%A4%A9%E4%B8%BB%E6%95%99%E4%B8%8A%E6%B5%B7%E6%95%99%E5%8C%BA%E5%BE%90%E5%AE%B6%E6%B1%87%E5%9C%A3%E4%BE%9D%E7%BA%B3%E7%88%B5%E4%B8%BB%E6%95%99%E5%BA%A7%E5%A0%82%28%E4%B8%8D%E5%AF%B9%E5%A4%96%E5%BC%80%E6%94%BE%29"
+        },
+        {
+          "poi_id": "B0FFGJQOL3",
+          "name": "徐家汇大修道院",
+          "address": "南丹路40号(徐家汇地铁站2号口步行170米)",
+          "coordinate": "121.435768,31.188598",
+          "source_url": "https://uri.amap.com/marker?position=121.435768%2C31.188598&name=%E5%BE%90%E5%AE%B6%E6%B1%87%E5%A4%A7%E4%BF%AE%E9%81%93%E9%99%A2"
+        },
+        {
+          "poi_id": "B00156R4F0",
+          "name": "上海徐家汇源",
+          "address": "漕溪北路90号(徐家汇地铁站出入口步行110米)",
+          "coordinate": "121.436763,31.195898",
+          "source_url": "https://uri.amap.com/marker?position=121.436763%2C31.195898&name=%E4%B8%8A%E6%B5%B7%E5%BE%90%E5%AE%B6%E6%B1%87%E6%BA%90"
+        }
+      ]
+    },
+    {
+      "id": "attraction_03",
+      "query": "土山湾博物馆",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B00155QHTA",
+          "name": "上海土山湾博物馆",
+          "address": "蒲汇塘路55号-1临",
+          "coordinate": "121.435149,31.186616",
+          "source_url": "https://uri.amap.com/marker?position=121.435149%2C31.186616&name=%E4%B8%8A%E6%B5%B7%E5%9C%9F%E5%B1%B1%E6%B9%BE%E5%8D%9A%E7%89%A9%E9%A6%86"
+        },
+        {
+          "poi_id": "B0FFKHB20G",
+          "name": "土山湾孤儿院旧址",
+          "address": "蒲汇塘路55号土山湾博物馆",
+          "coordinate": "121.435112,31.186598",
+          "source_url": "https://uri.amap.com/marker?position=121.435112%2C31.186598&name=%E5%9C%9F%E5%B1%B1%E6%B9%BE%E5%AD%A4%E5%84%BF%E9%99%A2%E6%97%A7%E5%9D%80"
+        },
+        {
+          "poi_id": "B0M66MA4FV",
+          "name": "土山湾博物馆学生社区实践指导点",
+          "address": "裕德路与中漕路交叉口东北160米",
+          "coordinate": "121.435128,31.186602",
+          "source_url": "https://uri.amap.com/marker?position=121.435128%2C31.186602&name=%E5%9C%9F%E5%B1%B1%E6%B9%BE%E5%8D%9A%E7%89%A9%E9%A6%86%E5%AD%A6%E7%94%9F%E7%A4%BE%E5%8C%BA%E5%AE%9E%E8%B7%B5%E6%8C%87%E5%AF%BC%E7%82%B9"
+        }
+      ]
+    },
+    {
+      "id": "park_01",
+      "query": "徐家汇公园",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B00155ILI8",
+          "name": "徐家汇公园",
+          "address": "肇嘉浜路986号(徐家汇地铁站14号口步行250米)",
+          "coordinate": "121.442461,31.197401",
+          "source_url": "https://uri.amap.com/marker?position=121.442461%2C31.197401&name=%E5%BE%90%E5%AE%B6%E6%B1%87%E5%85%AC%E5%9B%AD"
+        },
+        {
+          "poi_id": "B00155QNUQ",
+          "name": "徐家汇公园地下停车场",
+          "address": "肇嘉浜路940号(徐家汇地铁站14号口步行480米)",
+          "coordinate": "121.443153,31.196904",
+          "source_url": "https://uri.amap.com/marker?position=121.443153%2C31.196904&name=%E5%BE%90%E5%AE%B6%E6%B1%87%E5%85%AC%E5%9B%AD%E5%9C%B0%E4%B8%8B%E5%81%9C%E8%BD%A6%E5%9C%BA"
+        },
+        {
+          "poi_id": "B001574KZG",
+          "name": "阿迪达斯徐家汇公园篮球场",
+          "address": "肇嘉浜路986号(徐家汇公园内)",
+          "coordinate": "121.443668,31.198358",
+          "source_url": "https://uri.amap.com/marker?position=121.443668%2C31.198358&name=%E9%98%BF%E8%BF%AA%E8%BE%BE%E6%96%AF%E5%BE%90%E5%AE%B6%E6%B1%87%E5%85%AC%E5%9B%AD%E7%AF%AE%E7%90%83%E5%9C%BA"
+        }
+      ]
+    },
+    {
+      "id": "park_02",
+      "query": "光启公园",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B00154GF8J",
+          "name": "光启公园",
+          "address": "南丹路17号(徐家汇地铁站1号口步行230米)",
+          "coordinate": "121.434630,31.189570",
+          "source_url": "https://uri.amap.com/marker?position=121.434630%2C31.189570&name=%E5%85%89%E5%90%AF%E5%85%AC%E5%9B%AD"
+        },
+        {
+          "poi_id": "B0FFF00LW3",
+          "name": "光启文化广场B楼",
+          "address": "斜土路2899号光启文化广场",
+          "coordinate": "121.441042,31.185902",
+          "source_url": "https://uri.amap.com/marker?position=121.441042%2C31.185902&name=%E5%85%89%E5%90%AF%E6%96%87%E5%8C%96%E5%B9%BF%E5%9C%BAB%E6%A5%BC"
+        },
+        {
+          "poi_id": "B0FFF01L5V",
+          "name": "光启文化广场",
+          "address": "斜土路2899号(近星游城)",
+          "coordinate": "121.441156,31.185694",
+          "source_url": "https://uri.amap.com/marker?position=121.441156%2C31.185694&name=%E5%85%89%E5%90%AF%E6%96%87%E5%8C%96%E5%B9%BF%E5%9C%BA"
+        }
+      ]
+    },
+    {
+      "id": "park_03",
+      "query": "衡山公园",
+      "outcome": "success",
+      "candidates": [
+        {
+          "poi_id": "B00155IQRX",
+          "name": "衡山公园",
+          "address": "上海市天平路街道广元路2号(衡山路宛平路口)",
+          "coordinate": "121.442123,31.200560",
+          "source_url": "https://uri.amap.com/marker?position=121.442123%2C31.200560&name=%E8%A1%A1%E5%B1%B1%E5%85%AC%E5%9B%AD"
+        },
+        {
+          "poi_id": "B0J1OUD0JW",
+          "name": "吴兴公园",
+          "address": "衡山路吴兴路路口(衡山路地铁站1号口步行250米)",
+          "coordinate": "121.444516,31.202330",
+          "source_url": "https://uri.amap.com/marker?position=121.444516%2C31.202330&name=%E5%90%B4%E5%85%B4%E5%85%AC%E5%9B%AD"
+        },
+        {
+          "poi_id": "B0HATSXLKE",
+          "name": "义勇军进行曲灌制地纪念馆",
+          "address": "衡山路811号",
+          "coordinate": "121.441928,31.197851",
+          "source_url": "https://uri.amap.com/marker?position=121.441928%2C31.197851&name=%E4%B9%89%E5%8B%87%E5%86%9B%E8%BF%9B%E8%A1%8C%E6%9B%B2%E7%81%8C%E5%88%B6%E5%9C%B0%E7%BA%AA%E5%BF%B5%E9%A6%86"
+        }
+      ]
+    }
+  ]
+}

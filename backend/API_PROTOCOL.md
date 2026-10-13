@@ -24,6 +24,12 @@ JSON errors have the shape `{"error":{"code":"...","message":"..."},"stage":"sta
 
 A plan contains an Amap POI identity and address, an outbound walking-route observation with origin and destination coordinates, optional Amap detail facts, optional Tavily leads, and explicit unknowns. `feasibility_checks.outbound_walk=pass` means the retrieved **outbound route** passed the time and walking bounds. `full_activity_time`, `budget`, and `open_now` remain `unknown` without further evidence. Amap `specialty_tags` are historical POI descriptors, not a live menu or current deal. Tavily hits mention the venue name but retain `identity_status=unverified`; they cannot establish the correct branch or a current price by themselves.
 
+## V3 evidence contract (schema introduced; response integration pending)
+
+`domain/evidence.py` defines `VenueIdentity`, `SourceObservation`, `VenueClaim`, `FeasibilityCheck`, and `ToolResult`. The additive tables `venue_identity`, `source_observation`, and `venue_claim` store public venue evidence independently of a user's conversation. Each observation has a source URL, scope, acquisition time, outcome, and optional short excerpt/hash. Each claim references one observation and carries field, value, scope, status, observation time, and optional expiry. A brand menu may be shown as a brand example; it must not pass a branch-specific constraint. Search leads never establish branch identity. A branch claim can affect a decision only if `check_branch_claim` verifies matching POI identity and source reference, successful acquisition, verified status, and freshness. Missing or stale facts remain `unknown`.
+
+The running plan JSON above remains unchanged in V3-0. When V3-2 connects claims to plans, it will add `evidence_contract_version: 1` and source/claim references without changing the existing plan and action IDs; clients must continue accepting old saved snapshots. No current endpoint claims to provide live inventory or a complete branch menu.
+
 ## Confirmed actions
 
 | Method and path | Purpose |

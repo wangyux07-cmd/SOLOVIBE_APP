@@ -84,8 +84,46 @@ CREATE TABLE IF NOT EXISTS solovibe_v1.saved_plans (
  plan_snapshot jsonb NOT NULL,
  saved_at timestamptz NOT NULL DEFAULT now()
 );
+-- V3 public venue evidence contains no user location or conversation content.
+CREATE TABLE IF NOT EXISTS solovibe_v1.venue_identity (
+ venue_id uuid PRIMARY KEY,
+ amap_poi_id text UNIQUE NOT NULL,
+ name text NOT NULL, city text NOT NULL, address text NOT NULL,
+ amap_coordinate text NOT NULL,
+ updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS solovibe_v1.source_observation (
+ observation_id uuid PRIMARY KEY,
+ venue_id uuid REFERENCES solovibe_v1.venue_identity,
+ kind text NOT NULL CHECK(kind IN ('map_api','official_site','authorized_api','merchant_direct','search_lead')),
+ outcome text NOT NULL CHECK(outcome IN ('success','empty','forbidden','timeout','invalid_response','identity_conflict','stale')),
+ scope text NOT NULL CHECK(scope IN ('branch','brand','area')),
+ source_url text NOT NULL,
+ observed_at timestamptz NOT NULL,
+ content_sha256 text,
+ evidence_excerpt varchar(400),
+ CHECK(scope <> 'branch' OR venue_id IS NOT NULL),
+ CHECK(kind <> 'search_lead' OR scope <> 'branch')
+);
+CREATE TABLE IF NOT EXISTS solovibe_v1.venue_claim (
+ claim_id uuid PRIMARY KEY,
+ observation_id uuid NOT NULL REFERENCES solovibe_v1.source_observation,
+ venue_id uuid REFERENCES solovibe_v1.venue_identity,
+ field text NOT NULL,
+ value jsonb,
+ unit text,
+ scope text NOT NULL CHECK(scope IN ('branch','brand','area')),
+ status text NOT NULL CHECK(status IN ('verified','indicative','unknown','stale','conflict')),
+ observed_at timestamptz NOT NULL,
+ valid_until timestamptz,
+ CHECK(scope <> 'branch' OR venue_id IS NOT NULL),
+ CHECK(field NOT IN ('offer','open_now','availability') OR status <> 'verified' OR valid_until IS NOT NULL)
+);
+ALTER TABLE solovibe_v1.venue_claim ALTER COLUMN value DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS conversations_owner ON solovibe_v1.conversations(owner_id);
 CREATE INDEX IF NOT EXISTS node_events_run ON solovibe_v1.node_events(run_id, id);
 CREATE INDEX IF NOT EXISTS plan_sets_thread ON solovibe_v1.plan_sets(thread_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS actions_thread ON solovibe_v1.actions(thread_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS source_observation_venue_time ON solovibe_v1.source_observation(venue_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS venue_claim_venue_field ON solovibe_v1.venue_claim(venue_id, field, observed_at DESC);
 REVOKE ALL ON SCHEMA solovibe_v1, solovibe_graph FROM PUBLIC;
