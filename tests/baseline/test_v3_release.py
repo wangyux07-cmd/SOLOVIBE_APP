@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from config import allowed_hosts, cookie_secure, cors_origins
+from config import DEPLOYED_FRONTEND_ORIGIN, allowed_hosts, cookie_secure, cors_origins
 from main import create_app
 
 
@@ -20,7 +20,7 @@ def test_production_requires_https_explicit_host_and_secure_cookie(monkeypatch):
     with pytest.raises(ValueError, match='SESSION_COOKIE_SECURE'):
         cookie_secure('https')
     monkeypatch.setenv('SESSION_COOKIE_SECURE', 'true')
-    assert cors_origins() == ['https://example.com']
+    assert cors_origins() == ['https://example.com', DEPLOYED_FRONTEND_ORIGIN]
     assert allowed_hosts() == ['example.com']
     assert cookie_secure('http') is True
 
@@ -34,3 +34,14 @@ def test_unready_release_endpoints_return_structured_error():
         response = client.request(method, path)
         assert response.status_code == 503
         assert response.json()['error']['code'] == 'STARTING'
+
+
+def test_deployed_frontend_can_reach_session_boundary():
+    client = TestClient(create_app())
+    allowed = client.post('/api/session', headers={'Origin': DEPLOYED_FRONTEND_ORIGIN})
+    assert allowed.status_code == 503
+    assert allowed.json()['error']['code'] == 'STARTING'
+
+    denied = client.post('/api/session', headers={'Origin': 'https://unrelated.example'})
+    assert denied.status_code == 403
+    assert denied.json()['error']['code'] == 'ORIGIN_DENIED'

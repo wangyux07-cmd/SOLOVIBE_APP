@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 BACKEND_DIR = Path(__file__).resolve().parent
 load_dotenv(BACKEND_DIR / ".env", override=False)
 
+DEPLOYED_FRONTEND_ORIGIN = 'https://solovibe-app-vcdl.vercel.app'
+
 
 def is_configured(name: str) -> bool:
     value = os.getenv(name, "").strip()
@@ -48,7 +50,8 @@ def cors_origins() -> list[str]:
     if os.getenv('APP_ENV', 'development').lower() == 'production' and (
             not origins or any(not origin.startswith('https://') for origin in origins)):
         raise ValueError('Production CORS_ORIGINS must contain explicit HTTPS origins')
-    return origins
+    # The deployed Vercel site is an exact, owned origin; custom domains still use CORS_ORIGINS.
+    return list(dict.fromkeys([*origins, DEPLOYED_FRONTEND_ORIGIN]))
 
 
 def cookie_secure(request_scheme: str) -> bool:
