@@ -3,6 +3,7 @@ import asyncio
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,16 +23,23 @@ async def main():
         owner, _ = await app.repo.session(None)
         thread = (await app.repo.create(owner))['thread_id']
         await app.set_browser_origin(owner, thread, str(uuid4()), 0, 121.435, 31.193, 18)
+        started = time.monotonic()
         first = await app.chat(owner, thread, str(uuid4()),
-            '预算80元，可用时间120分钟，最多步行30分钟，想去公园，计划停留30分钟，请规划。', 1)
+            '预算180元，可用时间240分钟，最多步行90分钟，17:00出发，想逛公园和博物馆，还要吃晚饭，请规划一条多站路线。', 1)
+        first_chat_ms = round((time.monotonic() - started) * 1000)
         current = await app.repo.read(owner, thread)
-        assert first['kind'] == 'options_ready' and current['plan_set']['plans']
+        assert first['kind'] == 'itinerary_ready' and current['plan_set']['plans'], first['kind']
         old_set = current['plan_set']['plan_set_id']
         old_plan = current['plan_set']['plans'][0]
+        assert len(old_plan['itinerary']['stops']) == 3
+        assert len(old_plan['itinerary']['legs']) == 4
+        assert old_plan['itinerary']['stops'][-1]['kind'] == 'dinner'
         assert old_plan['route']['polyline'] and old_plan['return_route']['polyline']
         change_id = str(uuid4())
+        started = time.monotonic()
         changed = await app.adjust(owner, thread, change_id, 'budget_cny', 60.0,
                                    current['snapshot']['revision'])
+        adjustment_ms = round((time.monotonic() - started) * 1000)
         assert (await app.adjust(owner, thread, change_id, 'budget_cny', 60.0,
                                  current['snapshot']['revision']))['run_id'] == changed['run_id']
         current = await app.repo.read(owner, thread)
@@ -76,7 +84,7 @@ async def main():
         checked = await app.recheck_place(owner, thread, str(uuid4()),
             current['plan_set']['plan_set_id'], feedback_plan['place']['poi_id'],
             current['snapshot']['revision'])
-        assert checked['kind'] in ('options_ready', 'planning_unavailable')
+        assert checked['kind'] in ('itinerary_ready', 'no_options')
         await app.repo.delete_owned(owner, thread)
         deleted = True
         async with app.pool.connection() as conn:
@@ -93,6 +101,10 @@ async def main():
                     (thread,))).fetchone()
                 assert count['n'] == 0, table
         print(json.dumps({'verified': True, 'real_first_plans': len(current['plan_set']['plans']),
+            'first_chat_ms': first_chat_ms, 'adjustment_ms': adjustment_ms,
+            'first_model_input_tokens': first['model'].get('input_tokens'),
+            'first_model_output_tokens': first['model'].get('output_tokens'),
+            'adjustment_model_calls': int(bool(changed['model'].get('actual_call'))),
             'adjustment_replayed': True, 'new_plan_set': True, 'old_plan_rejected': True,
             'owner_isolated': True, 'cross_process_status': True,
             'targeted_recheck_kind': checked['kind'], 'feedback_source': 'user_report',

@@ -7,6 +7,7 @@ never a simulated success.
 import argparse
 import asyncio
 import json
+import math
 import statistics
 import sys
 import time
@@ -42,7 +43,35 @@ def percentile(values, percent):
     if not values:
         return None
     ordered = sorted(values)
-    return round(ordered[min(len(ordered) - 1, int((len(ordered) - 1) * percent))], 1)
+    # Nearest-rank: on a six-scenario run P95 is the slowest observation.
+    return round(ordered[math.ceil(len(ordered) * percent) - 1], 1)
+
+
+def itinerary_contract(itinerary, constraints):
+    if not itinerary:
+        return {'route_leg_count': 0, 'geometry_leg_count': 0,
+                'hard_constraints_pass': False, 'dinner_in_window': False}
+    stops = itinerary.get('stops', [])
+    legs = itinerary.get('legs', [])
+    verified = sum(1 for leg in legs if (
+        leg.get('route', {}).get('provider') == 'amap'
+        and leg['route'].get('origin_coordinate') == leg.get('from_coordinate')
+        and leg['route'].get('destination_coordinate') == leg.get('to_coordinate')
+        and leg['route'].get('distance_meters', 0) > 0
+        and leg['route'].get('walking_minutes', 0) >= 0
+        and leg['route'].get('observed_at')))
+    geometry = sum(1 for leg in legs if len(leg.get('route', {}).get('polyline') or []) >= 2)
+    dinner = constraints.meal_requirement != 'dinner' or bool(
+        stops and stops[-1]['kind'] == 'dinner'
+        and '17:00' <= stops[-1]['arrival_local'] <= '20:30')
+    hard_pass = bool(2 <= len(stops) <= 3 and len(legs) == len(stops) + 1
+                     and verified == len(legs) and geometry == len(legs)
+                     and itinerary['total_minutes'] <= constraints.available_minutes
+                     and (constraints.max_walk_minutes is None
+                          or itinerary['total_walk_minutes'] <= constraints.max_walk_minutes)
+                     and dinner)
+    return {'route_leg_count': verified, 'geometry_leg_count': geometry,
+            'hard_constraints_pass': hard_pass, 'dinner_in_window': dinner}
 
 
 async def evaluate(scenarios, key):
@@ -63,14 +92,16 @@ async def evaluate(scenarios, key):
                 reply = await planner.build_itinerary(snapshot, enriched, evidence, plan_set_id=item['id'])
                 plan = reply['plans'][0] if reply['plans'] else None
                 itinerary = plan.get('itinerary') if plan else None
-                status = 'passed' if itinerary and len(itinerary['legs']) == len(itinerary['stops']) + 1 else 'no_itinerary'
+                contract = itinerary_contract(itinerary, snapshot.constraints)
+                status = ('passed' if contract['hard_constraints_pass'] else
+                          'contract_failed' if itinerary else 'no_itinerary')
                 record = {'id': item['id'], 'status': status, 'evidence_status': evidence['status'],
                     'candidate_count': len(enriched), 'stop_count': len(itinerary['stops']) if itinerary else 0,
                     'leg_count': len(itinerary['legs']) if itinerary else 0,
+                    **contract,
                     'walk_minutes': itinerary['total_walk_minutes'] if itinerary else None,
                     'total_minutes': itinerary['total_minutes'] if itinerary else None,
-                    'dinner_satisfied': bool(itinerary and (snapshot.constraints.meal_requirement != 'dinner'
-                        or itinerary['stops'][-1]['kind'] == 'dinner'))}
+                    'dinner_satisfied': bool(itinerary and contract['dinner_in_window'])}
             except Exception as exc:
                 record = {'id': item['id'], 'status': 'error', 'error_type': type(exc).__name__}
             record['latency_ms'] = round((time.monotonic() - started) * 1000)
