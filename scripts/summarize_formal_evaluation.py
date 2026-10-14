@@ -71,6 +71,14 @@ def main() -> int:
         "published_route_legs": route_denominator,
         "p50_map_chain_ms": percentile([item["latency_ms"] for item in observations], 0.5),
         "p95_map_chain_ms": percentile([item["latency_ms"] for item in observations], 0.95),
+        "p50_feasible_map_chain_ms": percentile(
+            [item["latency_ms"] for item in feasible], 0.5),
+        "p95_feasible_map_chain_ms": percentile(
+            [item["latency_ms"] for item in feasible], 0.95),
+        "p50_boundary_map_chain_ms": percentile(
+            [item["latency_ms"] for item in boundary], 0.5),
+        "p95_boundary_map_chain_ms": percentile(
+            [item["latency_ms"] for item in boundary], 0.95),
         "mean_map_chain_ms": round(statistics.mean(item["latency_ms"] for item in observations), 1),
         "logical_map_calls": sum(item["map_calls"] for item in observations),
         "mean_map_calls_per_observation": round(
