@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 
 test('real browser completes multi-stop dinner itinerary, save and segmented Amap handoff', async ({ page, context }) => {
   test.skip(process.env.SOLOVIBE_LIVE_V3 !== '1', 'Opt-in: uses real model, Amap and database');
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ longitude: 121.435, latitude: 31.193, accuracy: 18 });
   await page.goto('/');
-  await expect(page.getByText('数据库与模型启动检查已通过')).toBeVisible({ timeout: 40_000 });
+  await expect(page.getByText('数据库与模型启动检查已通过')).toBeVisible({ timeout: 90_000 });
   await page.getByRole('button', { name: '新建会话' }).click();
   await page.getByRole('button', { name: '使用当前位置' }).click();
   await expect(page.getByText(/已记录：上海市/)).toBeVisible({ timeout: 40_000 });
