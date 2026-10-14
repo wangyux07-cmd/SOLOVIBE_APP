@@ -1,6 +1,6 @@
 # SoloVibe
 
-**A context-aware companion for solo city outings.** [Open the app](https://solovibe-app-vcdl.vercel.app/).
+**A context-aware companion for solo city outings.**
 
 SoloVibe turns a conversation about location, available time, walking limit, budget, interests, and dinner into one ordered city itinerary. It finds real places, checks walking routes between stops, estimates the full outing and return journey, and places dinner at the end of the route when requested. The user can revise a constraint, save a chosen itinerary, and open each leg in Amap after confirmation.
 
