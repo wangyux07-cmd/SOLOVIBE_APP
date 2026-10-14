@@ -1,90 +1,88 @@
 # SoloVibe
 
-**A context-aware companion agent for solo city outings.**
+**A context-aware companion for solo city outings.** [Open the app](https://solovibe-app-vcdl.vercel.app/).
 
-SoloVibe helps people plan a solo city outing. It combines their location, available time, walking limit, budget, interests, and optional dinner requirement into **one ordered 2–3 stop walking itinerary**. Every stop is an Amap POI and every leg is backed by an Amap route. After confirmation, the user can save the itinerary or open a separate Amap navigation link for each leg.
+SoloVibe turns a conversation about location, available time, walking limit, budget, interests, and dinner into one ordered city itinerary. It finds real places, checks walking routes between stops, estimates the full outing and return journey, and places dinner at the end of the route when requested. The user can revise a constraint, save a chosen itinerary, and open each leg in Amap after confirmation.
 
-> **Project status: multi-stop itinerary prototype verified locally; public deployment pending.** LangGraph, PostgreSQL state, real Amap POI/route calls, direct edits, confirmation, deletion, and recovery are implemented. Real DeepSeek/Amap/database and browser runs have produced a three-stop dinner itinerary with four navigation legs. Docker configuration is present; image builds and a public Vercel/backend deployment still require validation. Restaurant reservation is **not implemented**: no authorized booking API or confirmed reservation receipt is available. Menu, offer, and live merchant integrations from earlier V3 work are retained as historical, optional capabilities and are no longer release gates for this narrower product.
+The itinerary planner searches a bounded set of nearby attractions and restaurants. It evaluates feasible stop orders against the user's time and walking limits, prioritizes the number of useful stops, and then selects the shortest verified walking route among those candidates. Each stop carries its place identity and address; each leg carries Amap walking-route evidence and route geometry.
 
-The planner searches bounded attractions and restaurants, rejects identity conflicts, queries directed walking legs, and enumerates feasible orders within the candidate set. It first maximizes the number of feasible stops (up to three), then minimizes verified walking time. If dinner is required, a restaurant is the final stop within the planned 17:00–20:30 arrival window. This is **candidate-set optimization**, not a claim of a city-wide optimum, live restaurant availability, or a completed booking. The [multi-stop test plan](docs/MULTI_STOP_TEST_EVALUATION_PLAN.md) defines the measurable acceptance criteria.
+## Product architecture
 
-## Why SoloVibe?
+```mermaid
+flowchart TB
+    subgraph Experience[Experience layer]
+        UI[React + TypeScript interface<br/>conversation · itinerary · route sketch · confirmation]
+    end
+    subgraph Application[Application layer]
+        API[FastAPI<br/>sessions · conversations · adjustments · actions]
+        GRAPH[LangGraph orchestration<br/>context · evidence · planning · confirmation]
+    end
+    subgraph Capabilities[Capability layer]
+        CONTEXT[Context manager<br/>recent turns · rolling summary · structured snapshot]
+        PLANNER[Itinerary planner<br/>candidate search · feasibility · stop ordering]
+        ACTIONS[Action service<br/>version check · save · navigation handoff]
+    end
+    subgraph Infrastructure[Data and provider layer]
+        MODEL[DeepSeek<br/>language understanding]
+        MAP[Amap Web Services<br/>places · geocoding · walking routes]
+        DB[(PostgreSQL<br/>conversations · plans · action ledger · checkpoints)]
+    end
+    UI -->|HTTPS /api| API --> GRAPH
+    GRAPH --> CONTEXT & PLANNER & ACTIONS
+    CONTEXT --> MODEL & DB
+    PLANNER --> MAP
+    ACTIONS --> MAP & DB
+    GRAPH --> DB
+```
 
-A list of nearby places does not always help someone make a decision. A useful suggestion also needs to account for their energy, available time, budget, willingness to walk, and preferences for spending time alone.
+The frontend is a Vite application deployed on Vercel. Its same-origin `/api` route forwards requests to the FastAPI service. PostgreSQL stores conversation state, plan versions, action records, and LangGraph checkpoints. The model interprets user language; application code validates state changes, screens provider results, evaluates route feasibility, and authorizes actions.
 
-SoloVibe aims to turn those constraints into a manageable choice, with enough information to act on it.
+## Agent workflow
 
-For example:
-
-> “I'm near Xuhui in Shanghai. I'm a little tired, have one hour and a budget of RMB 50, and don't want to walk far.”
-
-The intended experience is to record those constraints, clarify anything essential, retrieve real places and directed routes, and propose one ordered itinerary. Changing a constraint generates a new version. Saving or handing off navigation requires explicit confirmation.
-
-**The current implementation never substitutes a straight line for a missing route. Amap ratings, average cost and recorded hours may be absent, and none establishes current opening or a reservation.**
-
-## Planned V1 Capabilities
-
-| Capability | Intended behavior |
-| --- | --- |
-| Context understanding | Capture location, energy, budget, time, preferences, and exclusions; preserve user corrections across turns |
-| External information retrieval | Use map services such as Amap for places and routes, with web search for supporting venue and activity information |
-| Ordered itinerary | Present one 2–3 stop route with per-leg Amap evidence, estimated stop times, and explicit unknowns |
-| Conversation continuity | Preserve recent messages and structured constraints; summarize older history when the input budget requires it |
-| Confirmed actions | Save the itinerary or provide one Amap navigation link per leg after confirmation; restaurant booking awaits an authorized provider |
-| Plan adjustments | Update affected parts of the plan when the user's constraints or situation change |
-
-Ratings and recorded hours depend on actual provider coverage. Missing information remains unknown; failed calls never become successful lookups. Automatic payments, unsupported restaurant bookings, and continuous background location tracking are outside the current implementation.
-
-## Architecture
-
-The frontend uses **React, TypeScript, and Vite**, with **FastAPI** on the backend. **LangGraph** is the workflow orchestrator, **Supabase / PostgreSQL** persists business state and native checkpoints, and model calls go through a dedicated adapter.
-
-The diagram shows the current main path:
+The compiled `StateGraph` has two entry paths. A chat event updates context and produces a reply or an itinerary; a confirmed action resumes a durable approval flow.
 
 ```mermaid
 flowchart TD
-    A[User message or constraint change] --> B[FastAPI: validate request and session ownership]
-    B --> C[LangGraph: assemble context]
-    C --> D[Model proposes a state patch]
-    D --> E[Validate and persist structured state]
-    E --> F{Enough information?}
-    F -->|Clarification needed| G[Ask an essential question]
-    G --> A
-    F -->|Ready to plan| H[Amap POI and directed walking routes]
-    H --> I[Validate constraints and choose ordered stops]
-    I --> J[Present one itinerary and per-leg evidence]
-    J --> K[User confirms an action]
-    K --> L[Save itinerary or produce per-leg Amap links]
-    L --> M[Record the actual outcome]
+    START([Start]) --> KIND{Event kind}
+    KIND -->|Chat| ACCEPT[accept_event]
+    ACCEPT --> PREPARE[prepare_context] --> COMPACT[compact_history]
+    COMPACT --> UNDERSTAND[understand_context] --> COMMIT[validate_and_commit_patch]
+    COMMIT --> REPLY{Reply route}
+    REPLY -->|Clarify| CLARIFY[clarification]
+    REPLY -->|State recap| SUMMARY[state_summary]
+    REPLY -->|Support| SUPPORT[supportive]
+    REPLY -->|Plan| COLLECT[collect_evidence]
+    COLLECT --> VERIFY[verify_feasibility] --> ENRICH[enrich_sources]
+    ENRICH --> PUBLISH[publish_plans] --> PERSIST[persist_reply]
+    CLARIFY & SUMMARY & SUPPORT --> PERSIST
+    PERSIST --> END([End])
+
+    KIND -->|Action| ACTION[prepare_action]
+    ACTION --> WAIT[await_confirmation] --> DECIDE[read_action_decision]
+    DECIDE -->|Declined| CANCEL[cancel_action] --> END
+    DECIDE -->|Authorized| REVALIDATE[revalidate_selected]
+    REVALIDATE -->|Invalid| INVALIDATE[invalidate_action] --> END
+    REVALIDATE -->|Valid| CLAIM[claim_action]
+    CLAIM -->|Claimed| EXECUTE[execute_or_handoff] --> RECEIPT[persist_receipt] --> END
+    CLAIM -->|Invalidated| INVALIDATE
 ```
 
-LangGraph coordinates node execution, conditional routing, and recovery. The model handles language understanding and explanation. Application code controls ownership, validation, request deduplication, and authorization for actions.
+Conversation history remains available as raw messages. For model calls, the context manager retains recent turns, summarizes older turns when the input budget calls for it, and combines them with a versioned snapshot of user constraints. The graph records node execution and can resume a confirmation from a PostgreSQL checkpoint. Action decisions are tied to a specific plan version and recorded with their outcome.
 
-### Context and State
+## Repository layout
 
-- **Raw messages:** Stored separately for conversation display and traceability.
-- **Structured snapshots:** Authoritative constraints and execution progress, updated after each validated change with a version and source reference.
-- **Recent messages and rolling summaries:** The latest four complete turns retain their original text. When estimated full input reaches about 80% of the node budget, eligible older turns are summarized; raw messages remain stored. The budget uses the model's reported context window and a conservative estimate, not an exact tokenizer count.
-- **LangGraph checkpoints:** Persist graph execution state for recovery. They do not replace business snapshots or automatically compress conversation history.
+| Path | Purpose |
+| --- | --- |
+| `frontend/` | React interface, Vite configuration, and browser tests |
+| `backend/` | FastAPI routes, LangGraph workflow, domain rules, providers, and persistence |
+| `scripts/` | Setup, database migration, verification, and evaluation commands |
+| `eval/` | Fixed evaluation scenarios |
+| `tests/baseline/` | API, graph, planning, and failure-path contract tests |
+| `deploy/` | Container images and deployment configuration |
 
-## Development Status
+## Run locally
 
-| Stage | Deliverable | Status |
-| --- | --- | --- |
-| 0 · Development baseline | Reproducible setup, locked dependencies, health checks, developer workbench, and baseline tests | Completed and pushed to the development branch |
-| 1 · LangGraph and state | Graph execution, structured state, native persistence, session isolation, and retries | Implemented; live model/database integration and cross-process recovery verified. Failure/retry paths have contract tests but have not been fault-injected against the live provider |
-| 2 · Context management | Token budgets, recent-message windows, rolling summaries, and recovery consistency | Implemented; live compaction, raw-message retention, newer correction priority, and cross-process summary recovery verified |
-| 3 · Real activity options | Amap POI, detail and walking route, Tavily links, bounded screening, and persisted options | Implemented; real model/database/map/search/browser flow verified |
-| 4 · Confirmation and actions | Version-bound proposal, durable LangGraph interrupt, atomic confirmation, plan saving, navigation handoff, recovery | Implemented; real database/map and browser flows verified. Merchant booking entry points remain unavailable without verified provider data |
-| 5 · Integration and release | Adjustment, recovery, lifecycle, multi-stop itinerary, and deployment | Real multi-stop model/map/database/browser checks and independent backup/restore drill passed locally. Docker images and public deployment are pending validation; restaurant booking remains unavailable. |
-
-**Branches:** `main` retains the historical prototype. The active redesign is on [`Refactor`](https://github.com/wangyux07-cmd/SOLOVIBE_APP/tree/Refactor). Its default frontend is `frontend/src/StageOneApp.tsx`, and its backend entry point is `backend/main.py`. The earlier frontend and backend are retained as migration references.
-
-Readiness requires a working database connection, current migrations, and a successful model generation probe. With either unavailable, health reports `ready=false` and chat requests fail explicitly. Missing map credentials leave chat available but return `provider_unavailable` for planning requests. Confirmed actions use the same conversation's durable LangGraph checkpoint and a separate PostgreSQL authorization ledger.
-
-## Run the Development Baseline
-
-These instructions target **Windows PowerShell and the development branch**. Install Git, Node.js 20.19 or newer, and a Python installation with working `python -m pip`. The setup script uses uv to create an isolated Python 3.12.14 environment.
+Install Python, Node.js 20.19+, and Docker if you want the container workflow. On Windows PowerShell:
 
 ```powershell
 git clone --branch Refactor --single-branch https://github.com/wangyux07-cmd/SOLOVIBE_APP.git
@@ -92,79 +90,23 @@ Set-Location SOLOVIBE_APP
 powershell -NoProfile -File scripts/setup.ps1
 ```
 
-Setup installs locked dependencies and copies environment templates only when local `.env` files are missing. **External API keys are not required to view the readiness screen.** Real conversation execution requires PostgreSQL and a model account that can complete generation requests. Real place options and navigation handoff additionally require an Amap Web Service key; Tavily search is optional. Run the additive migration in `scripts/migrate_stage1.py` after reviewing the intended database connection; rerun it when upgrading to Stage 4 to create the plan-set and action tables.
-
-Open two terminals at the repository root:
+Add `DEEPSEEK_API_KEY`, `AMAP_API_KEY`, and `DATABASE_URL` to the generated `backend/.env`. Run the database migration once, then start the API and frontend in separate terminals:
 
 ```powershell
-# Terminal 1: backend
+.\.venv\Scripts\python.exe scripts/migrate_stage1.py
 powershell -NoProfile -File scripts/dev.ps1 -Service backend
 ```
 
 ```powershell
-# Terminal 2: frontend
 powershell -NoProfile -File scripts/dev.ps1 -Service frontend
 ```
 
-- Frontend: <http://127.0.0.1:5173>
-- API documentation: <http://127.0.0.1:8000/docs>
-- Health endpoint: <http://127.0.0.1:8000/api/v1/health>
+Open <http://127.0.0.1:5173>. API documentation is at <http://127.0.0.1:8000/docs>.
 
-The frontend development server proxies `/api` requests to the local backend. Configure model, map, search, and database credentials in ignored `backend/.env`. Frontend `VITE_*` variables are public configuration and must not contain secrets.
-
-Docker configuration is available for a repeatable local run with the same ignored `backend/.env`:
+For a container run with the same `backend/.env`:
 
 ```powershell
-docker compose config --quiet
 docker compose up --build
 ```
 
-Open <http://127.0.0.1:5173>. Docker Engine must be running; the Compose file uses the existing external PostgreSQL database and does not create or reset one. See [Vercel frontend + backend deployment](deploy/VERCEL_DEPLOYMENT.md) for the public HTTPS path.
-
-### Validation
-
-```powershell
-# Backend baseline tests, frontend type checking, and production build
-powershell -NoProfile -File scripts/check.ps1
-
-# Playwright starts both local services when needed; Windows uses Microsoft Edge
-npm run test:e2e --workspace frontend
-```
-
-The local suite covers boundary behavior and the browser UI. To verify live Stage 1 behavior after configuring the ignored `backend/.env`, run `python scripts/migrate_stage1.py` once and `python scripts/verify_stage1_live.py` while the backend is running. The live script creates test conversations, makes real model calls, and checks persisted state, replay, concurrency, and owner isolation. See [Stage 1 progress and integration limits](docs/STAGE1_PROGRESS_2026-10-12.md). These checks do not validate the later planning features.
-
-For the **current multi-stop product**, use `python scripts/verify_multistop_live.py` for a real DeepSeek/Amap/PostgreSQL itinerary and confirmed segmented handoff. Use `python scripts/evaluate_itinerary_live.py` for the fixed real-map pilot; its anonymized report is written under ignored `.runtime/evaluations/`. To repeat the real browser journey, set `SOLOVIBE_LIVE_V3=1` and run `npm run test:e2e --workspace frontend -- --grep 'real browser completes multi-stop'`. These checks use provider quota. The [separate evaluation plan](docs/MULTI_STOP_TEST_EVALUATION_PLAN.md) defines the larger cohort and metrics needed before presenting reliability claims.
-
-The stage-specific commands below document earlier single-place iterations. Their acceptance numbers are historical and do not measure the current multi-stop itinerary.
-
-For a read-only count of completed runs, node events, and native LangGraph checkpoints, run `python scripts/verify_stage1_storage.py`. To opt into a real browser-to-model test, set `SOLOVIBE_LIVE=1` and run `npm run test:e2e --workspace frontend -- --grep "real UI"`; this consumes model credits.
-
-The Stage 2 live check uses a second backend on port 8001 with `SOLOVIBE_UNDERSTAND_INPUT_TOKENS=4500` and then runs `python scripts/verify_stage2_live.py`. It creates test conversations and consumes model credits. See [Stage 2 delivery and validation](docs/STAGE2_PROGRESS_2026-10-12.md) for the exact boundary and observed results.
-
-For Stage 3, add `AMAP_API_KEY` and optionally `TAVILY_API_KEY` to `backend/.env`, rerun `python scripts/migrate_stage1.py`, then run `python scripts/verify_stage3_live.py --require-options`. That test makes actual model, map, and optional search calls and requires 1–3 persisted options with real walking-route evidence. Without a map key, it reports `maps_not_configured` and zero options. See [Stage 3 progress and verification limits](docs/STAGE3_PROGRESS_2026-10-12.md).
-
-For Stage 4, rerun `python scripts/migrate_stage1.py`, then run `python scripts/verify_stage4_live.py`. It creates a fresh conversation with real providers, checks an exact selected plan, saves it once despite duplicate confirmation, revalidates a navigation route, and verifies rejection and invalidation on new input. To check the real UI, start both services and run `$env:SOLOVIBE_LIVE_STAGE4='1'; npm run test:e2e --workspace frontend -- --grep 'real browser confirms'` in PowerShell. This covers saving, navigation-link preparation, and the recorded browser handoff. See [Stage 4 progress and verification limits](docs/STAGE4_PROGRESS_2026-10-12.md).
-
-For V3-5/V3-6 lifecycle checks, run `python scripts/verify_v3_cleanup_live.py` for synthetic expiry cleanup. `python scripts/cleanup_expired.py` previews expired sessions; `--apply` performs the purge. See the [V3-6 release record](docs/V3_STAGE6_RELEASE_2026-10-13.md) for production settings and backup gates. The earlier `verify_v3_stage5_live.py` assumes three independent place options and is retained only as a historical stage script.
-
-## Design and Development Documents
-
-The following documents are currently written in Chinese and are linked from the development branch. Delivery notes describe the state at the time they were written.
-
-- [Original project review and redesign proposal](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGN_PROPOSAL.md)
-- [Redesigned Plan V1: architecture, state management, and delivery stages](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V1.md)
-- [Redesigned Plan V2: prior release-oriented implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V2.md)
-- [Redesigned Plan V3: complete next-stage implementation plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/AI_AGENT_REDESIGNED_PLAN_V3.md)
-- [External information acquisition plan: maps, public pages, merchants, and availability](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_INFORMATION_ACQUISITION_PLAN_V2.md)
-- [V3-0 evidence contract and real pilot baseline](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE0_EVIDENCE_2026-10-13.md)
-- [V3-1 browser location, round trip, and full-time verification](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE1_ROUNDTRIP_2026-10-13.md)
-- [V3-2 public official-source pipeline and pilot coverage](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE2_PUBLIC_SOURCES_2026-10-13.md)
-- [V3-3 offers, schedule inference, budget decisions, and coverage](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE3_OFFERS_2026-10-13.md)
-- [V3-4 authorized merchant bridge and external acceptance gap](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE4_AUTHORIZED_MERCHANT_2026-10-13.md)
-- [V3-5 adjustments, recovery, and user-reported feedback](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE5_ADJUSTMENT_RECOVERY_2026-10-13.md)
-- [V3-6 lifecycle and release checks](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/V3_STAGE6_RELEASE_2026-10-13.md)
-- [Multi-stop itinerary test and evaluation plan](docs/MULTI_STOP_TEST_EVALUATION_PLAN.md)
-- [Vercel frontend and Docker backend deployment guide](deploy/VERCEL_DEPLOYMENT.md)
-- [Stage 5A external-data integration and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/STAGE5A_EXTERNAL_DATA_2026-10-13.md)
-- [External tools and API integration plan](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/EXTERNAL_TOOLS_API_PLAN_V1.md)
-- [Development baseline: setup, operation, and validation record](https://github.com/wangyux07-cmd/SOLOVIBE_APP/blob/Refactor/docs/DEVELOPMENT_BASELINE.md)
+Run the automated checks with `powershell -NoProfile -File scripts/check.ps1` and `npm run test:e2e --workspace frontend`.

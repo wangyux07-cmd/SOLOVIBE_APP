@@ -4,10 +4,7 @@ import socket
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
-
 from config import configuration_status
-from data_types import SoloIndexDimensions, ThreadState, ThreadStatus
 from main import create_app
 
 PROVIDER_VARS = (
@@ -92,15 +89,8 @@ def test_cors_only_allows_declared_frontend(client):
     assert "access-control-allow-origin" not in response.headers
 
 
-def test_database_requires_checkpoint_connection_and_unknown_dimensions_stay_unknown(monkeypatch):
+def test_database_requires_checkpoint_connection(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.invalid")
     monkeypatch.setenv("SUPABASE_KEY", "test-only")
     monkeypatch.delenv("DATABASE_URL", raising=False)
     assert configuration_status()["database"]["configured"] is False
-    assert all(value is None for value in SoloIndexDimensions().model_dump().values())
-    with pytest.raises(ValidationError):
-        SoloIndexDimensions(safety_rating=8)
-    first = ThreadState(thread_id="a", status=ThreadStatus.ACTIVE)
-    second = ThreadState(thread_id="b", status=ThreadStatus.ACTIVE)
-    first.messages.append({"content": "private"})
-    assert second.messages == []

@@ -133,9 +133,16 @@ async def main():
     args = parser.parse_args()
     if not is_configured('AMAP_API_KEY'):
         raise SystemExit('AMAP_API_KEY is not configured; no live result was produced')
-    scenarios = json.loads(args.dataset.read_text(encoding='utf-8'))
+    dataset = json.loads(args.dataset.read_text(encoding='utf-8'))
+    if isinstance(dataset, dict):
+        defaults = dataset.get('defaults', {})
+        scenarios = [{**defaults, **item} for item in dataset.get('scenarios', [])]
+    else:
+        scenarios = dataset
     if not isinstance(scenarios, list) or not scenarios:
         raise SystemExit('Dataset must contain at least one scenario')
+    if len({item.get('id') for item in scenarios}) != len(scenarios):
+        raise SystemExit('Scenario IDs must be unique')
     if args.limit is not None:
         scenarios = scenarios[:args.limit]
     import os

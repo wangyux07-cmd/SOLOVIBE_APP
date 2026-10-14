@@ -51,7 +51,7 @@ async function bootstrap(): Promise<Conversation> {
   return request('/api/conversations', post);
 }
 
-export default function StageOneApp() {
+export default function SoloVibeApp() {
   const [health, setHealth] = useState<Health | null>(null);
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [input, setInput] = useState('');
@@ -309,7 +309,7 @@ export default function StageOneApp() {
     <div className="mx-auto max-w-6xl">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
         <div className="flex items-center gap-3"><Compass className="text-[#bdd7a2]" /><span className="text-xl font-semibold">SoloVibe</span></div>
-        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">多站行程 · 开发预览</span>
+        <span className="rounded-full border border-[#bdd7a2]/30 px-3 py-1 text-xs text-[#bdd7a2]">多站城市行程</span>
       </header>
 
       <section className="py-9">
@@ -424,7 +424,7 @@ export default function StageOneApp() {
         <div className="mt-4 flex flex-wrap gap-2"><select aria-label="反馈对应方案" value={feedbackPlanId} onChange={event => setFeedbackPlanId(event.target.value)} className="rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs"><option value="">选择地点</option>{conversation.plan_set.plans.map(plan => <option key={plan.plan_id} value={plan.plan_id}>{plan.place.name}</option>)}</select><select aria-label="反馈类型" value={feedbackCategory} onChange={event => setFeedbackCategory(event.target.value)} className="rounded-lg border border-white/15 bg-[#19231d] p-2 text-xs"><option value="considered">考虑过</option><option value="went">我说我去了</option><option value="did_not_go">我说我没去</option><option value="other">其他</option></select></div>
         <textarea aria-label="反馈内容" maxLength={500} rows={2} value={feedbackNote} onChange={event => setFeedbackNote(event.target.value)} className="mt-3 w-full rounded-lg border border-white/15 bg-[#19231d] p-3 text-sm" placeholder="写下你的感受或结果（最多 500 字）" /><button type="button" disabled={busy || !feedbackPlanId || !feedbackNote.trim()} onClick={() => void submitFeedback()} className="mt-2 rounded-lg border border-[#bdd7a2]/40 px-3 py-2 text-xs disabled:opacity-40">保存自述反馈</button>
       </section>}
-      <footer className="mt-10 text-xs text-[#84938a]">多站行程开发预览 · 条件修改会产生新方案；反馈为用户自述。会话及其恢复记录可删除；商家状态和来源资料可能变化，出发前请核实。</footer>
+      <footer className="mt-10 text-xs text-[#84938a]">SoloVibe · 按你的时间、步行与兴趣安排城市独行。</footer>
     </div>
   </main>;
 }

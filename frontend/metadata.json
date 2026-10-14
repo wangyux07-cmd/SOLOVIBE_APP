@@ -1,6 +1,0 @@
-{
-  "name": "SoloVibe",
-  "description": "An AI-powered solo wander guide and companion that encourages and curates empowered solitude through lightweight city challenges and interactive community resonance.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

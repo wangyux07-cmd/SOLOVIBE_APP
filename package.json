@@ -2,14 +2,13 @@
   "name": "solovibe-fullstack",
   "version": "1.0.0",
   "private": true,
-  "description": "Full-stack application with Vite frontend and Python backend",
+  "description": "SoloVibe city outing planner",
   "type": "module",
   "scripts": {
     "dev": "npm run dev --workspace frontend",
     "build": "npm run build --workspace frontend",
     "preview": "npm run preview --workspace frontend",
     "start": "npm run preview --workspace frontend",
-    "clean": "cd frontend && npm run clean",
     "lint": "npm run lint --workspace frontend",
     "backend": "powershell -NoProfile -File ./scripts/dev.ps1 -Service backend",
     "install:frontend": "npm ci",
@@ -22,13 +21,7 @@
   "workspaces": [
     "frontend"
   ],
-  "keywords": [
-    "vite",
-    "react",
-    "typescript",
-    "fullstack",
-    "python"
-  ],
+  "keywords": ["langgraph", "fastapi", "react", "city-itinerary"],
   "author": "",
   "license": "MIT",
   "dependencies": {},

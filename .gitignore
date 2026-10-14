@@ -19,3 +19,12 @@ test-results/
 playwright-report/
 *.log
 .DS_Store
+
+# Local notes, editor configuration and historical workspace artifacts
+docs/
+*.md
+!/README.md
+.catpaw/
+.vscode/
+browser_snapshots/
+local_archive/
