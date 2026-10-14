@@ -3,7 +3,7 @@ import httpx
 import pytest
 
 from domain.context import Constraints, ContextSnapshot
-from services.planning import AmapProvider, Planner, ProviderFailure, TavilyProvider
+from services.planning import AmapProvider, Planner, ProviderFailure, TavilyProvider, matches_specific_interest
 from agent_graph import build_graph
 from domain.context import Understanding
 
@@ -11,6 +11,13 @@ from domain.context import Understanding
 def snapshot(**changes):
     return ContextSnapshot(revision=2, constraints=Constraints(city='上海', location_text='徐家汇站',
         budget_cny=60, available_minutes=40, max_walk_minutes=25, **changes))
+
+
+def test_park_interest_accepts_real_park_subfeature_but_not_park_named_shop():
+    assert matches_specific_interest(
+        {'name': '人民公园-西山瀑布', 'category': '风景名胜;风景名胜相关;旅游景点'}, ['公园'])
+    assert not matches_specific_interest(
+        {'name': '人民公园-咖啡馆', 'category': '餐饮服务;咖啡厅'}, ['公园'])
 
 
 @pytest.mark.asyncio

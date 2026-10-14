@@ -105,7 +105,8 @@ def matches_specific_interest(place, interests):
     if len(interests) == 1 and '公园' in interests[0]:
         name = scalar(place.get('name'))
         category = scalar(place.get('category'))
-        return name.endswith('公园') and (
+        park_name = name.endswith('公园') or bool(re.search(r'公园[-－—].+', name))
+        return park_name and (
             category == '公园' or category.startswith('风景名胜')
             or category.startswith('体育休闲服务'))
     return True
