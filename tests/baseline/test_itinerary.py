@@ -1,4 +1,5 @@
 """Multi-stop itinerary contracts: actual directed legs, meal window and no invention."""
+from copy import deepcopy
 from datetime import datetime, timezone
 
 import pytest
@@ -96,6 +97,22 @@ async def test_hard_limits_and_missing_meal_route_never_create_fabricated_plan()
         minutes = {key: minutes for key, minutes in Maps.minutes.items() if key[1] != 'R'}
     missing = await build_one(Planner(MissingMealLeg()), context(), [A, B, R], evidence(), 'missing')
     assert missing['plans'] == []
+
+
+@pytest.mark.asyncio
+async def test_known_over_budget_restaurant_is_not_selected_for_dinner():
+    cheap = deepcopy(A)
+    cheap['name'] = '平价餐厅'
+    cheap['category'] = '餐饮服务;中餐厅'
+    cheap['facts']['average_cost_cny'] = 60
+    expensive = deepcopy(R)
+    expensive['facts']['average_cost_cny'] = 2557
+    result = await build_one(Planner(Maps()), context(), [B, cheap, expensive], evidence(), 'budget')
+    assert result['kind'] == 'itinerary_ready'
+    assert [stop['place']['poi_id'] for stop in result['plans'][0]['itinerary']['stops']] == ['B', 'A']
+
+    no_meal = await build_one(Planner(Maps()), context(), [B, expensive], evidence(), 'budget-fail')
+    assert no_meal['plans'] == []
 
 
 @pytest.mark.asyncio

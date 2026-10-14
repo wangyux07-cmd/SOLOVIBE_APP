@@ -70,7 +70,11 @@ async def build_one(planner, snapshot, candidates, evidence, plan_set_id, now=No
         return _empty(planner, snapshot, evidence, '出发点或返程终点无法核实，暂时不能生成多站路线。', plan_set_id)
     meal_required = snapshot.constraints.meal_requirement == 'dinner'
     attractions = [place for place in candidates if not is_restaurant(place)][:2 if meal_required else 3]
-    restaurants = [place for place in candidates if is_restaurant(place)][:2]
+    budget = snapshot.constraints.budget_cny
+    restaurants = [place for place in candidates if is_restaurant(place) and not (
+        budget is not None and place.get('facts') and
+        place['facts'].get('average_cost_cny') is not None and
+        place['facts']['average_cost_cny'] > budget)][:2]
     if meal_required and not restaurants:
         return _empty(planner, snapshot, evidence, '附近未找到有可核实路线的餐厅，不能满足晚餐要求。', plan_set_id)
     pool = attractions + (restaurants if meal_required else [])
