@@ -100,6 +100,31 @@ async def test_hard_limits_and_missing_meal_route_never_create_fabricated_plan()
 
 
 @pytest.mark.asyncio
+async def test_missing_route_geometry_never_reaches_a_published_itinerary():
+    candidates = [deepcopy(item) for item in (A, B, R)]
+    for item in candidates:
+        item['return_route']['polyline'] = []
+    result = await build_one(Planner(Maps()), context(), candidates, evidence(), 'no-return-geometry')
+    assert result['plans'] == []
+
+    class OneUndrawableLeg(Maps):
+        async def walking(self, origin, destination, destination_id=None, *,
+                          origin_id=None, geometry=False):
+            route = await super().walking(origin, destination, destination_id,
+                                          origin_id=origin_id, geometry=geometry)
+            if origin_id == 'A' and destination_id == 'R':
+                route['polyline'] = []
+            return route
+
+    result = await build_one(Planner(OneUndrawableLeg()), context(),
+                             [deepcopy(item) for item in (A, B, R)],
+                             evidence(), 'alternate')
+    for plan in result['plans']:
+        assert all(len(leg['route']['polyline']) >= 2
+                   for leg in plan['itinerary']['legs'])
+
+
+@pytest.mark.asyncio
 async def test_known_over_budget_restaurant_is_not_selected_for_dinner():
     cheap = deepcopy(A)
     cheap['name'] = '平价餐厅'

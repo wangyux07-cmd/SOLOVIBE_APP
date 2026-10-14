@@ -25,6 +25,17 @@ def _departure(snapshot, now=None):
     return current.hour * 60 + current.minute, 'current_local_clock'
 
 
+def _route_usable(route):
+    """A published leg needs both walking cost and drawable provider geometry."""
+    if not isinstance(route, dict) or route.get('provider') != 'amap':
+        return False
+    if not isinstance(route.get('distance_meters'), (int, float)) or route['distance_meters'] <= 0:
+        return False
+    if not isinstance(route.get('walking_minutes'), (int, float)) or route['walking_minutes'] < 0:
+        return False
+    return isinstance(route.get('polyline'), list) and len(route['polyline']) >= 2
+
+
 def _sequence(snapshot, order, legs, departure_minute):
     """Return a feasible clock schedule, or None when hard time/walk limits fail."""
     c = snapshot.constraints
@@ -82,9 +93,9 @@ async def build_one(planner, snapshot, candidates, evidence, plan_set_id, now=No
         return _empty(planner, snapshot, evidence, '当前约束下不足两个可串联的真实地点。', plan_set_id)
     legs = {}
     for place in pool:
-        if place.get('route'):
+        if _route_usable(place.get('route')):
             legs[('origin', place['poi_id'])] = place['route']
-        if place.get('return_route'):
+        if _route_usable(place.get('return_route')):
             legs[(place['poi_id'], 'return')] = place['return_route']
     semaphore = asyncio.Semaphore(4)
 
@@ -93,7 +104,8 @@ async def build_one(planner, snapshot, candidates, evidence, plan_set_id, now=No
             try:
                 route = await planner.maps.walking(left['coordinate'], right['coordinate'],
                     destination_id=right['poi_id'], origin_id=left['poi_id'], geometry=True)
-                legs[(left['poi_id'], right['poi_id'])] = route
+                if _route_usable(route):
+                    legs[(left['poi_id'], right['poi_id'])] = route
             except ProviderFailure:
                 pass
 

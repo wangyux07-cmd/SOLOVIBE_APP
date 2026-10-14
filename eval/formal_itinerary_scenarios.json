@@ -1,5 +1,5 @@
 {
-  "version": "formal-2026-10-14-v1",
+  "version": "formal-2026-10-14-v2",
   "defaults": {
     "city": "上海",
     "budget_cny": 300,
@@ -14,10 +14,10 @@
     {"id": "nanjing_east_dinner", "expected": "passed", "location_text": "南京东路地铁站", "departure_time_local": "17:00", "meal_requirement": "dinner"},
     {"id": "lujiazui_dinner", "expected": "passed", "location_text": "陆家嘴地铁站", "departure_time_local": "17:00", "meal_requirement": "dinner"},
     {"id": "yuyuan_dinner", "expected": "passed", "location_text": "豫园地铁站", "departure_time_local": "17:00", "meal_requirement": "dinner"},
-    {"id": "zhongshan_park_dinner", "expected": "passed", "location_text": "中山公园地铁站", "departure_time_local": "17:00", "meal_requirement": "dinner"},
+    {"id": "natural_history_dinner", "expected": "passed", "location_text": "上海自然博物馆", "departure_time_local": "17:00", "meal_requirement": "dinner"},
     {"id": "wujiaochang_dinner", "expected": "passed", "location_text": "五角场地铁站", "departure_time_local": "17:00", "meal_requirement": "dinner"},
     {"id": "tianzifang_dinner", "expected": "passed", "location_text": "田子坊", "departure_time_local": "17:00", "meal_requirement": "dinner"},
-    {"id": "shanghai_station_dinner", "expected": "passed", "location_text": "上海火车站", "departure_time_local": "17:00", "meal_requirement": "dinner"},
+    {"id": "oriental_pearl_dinner", "expected": "passed", "location_text": "东方明珠广播电视塔", "departure_time_local": "17:00", "meal_requirement": "dinner"},
 
     {"id": "xujiahui_day", "expected": "passed", "location_text": "徐家汇地铁站", "departure_time_local": "13:00"},
     {"id": "people_square_day", "expected": "passed", "location_text": "人民广场地铁站", "departure_time_local": "13:00"},
@@ -25,10 +25,10 @@
     {"id": "nanjing_east_day", "expected": "passed", "location_text": "南京东路地铁站", "departure_time_local": "13:00"},
     {"id": "lujiazui_day", "expected": "passed", "location_text": "陆家嘴地铁站", "departure_time_local": "13:00"},
     {"id": "yuyuan_day", "expected": "passed", "location_text": "豫园地铁站", "departure_time_local": "13:00"},
-    {"id": "zhongshan_park_day", "expected": "passed", "location_text": "中山公园地铁站", "departure_time_local": "13:00"},
+    {"id": "natural_history_day", "expected": "passed", "location_text": "上海自然博物馆", "departure_time_local": "13:00"},
     {"id": "wujiaochang_day", "expected": "passed", "location_text": "五角场地铁站", "departure_time_local": "13:00"},
     {"id": "tianzifang_day", "expected": "passed", "location_text": "田子坊", "departure_time_local": "13:00"},
-    {"id": "shanghai_station_day", "expected": "passed", "location_text": "上海火车站", "departure_time_local": "13:00"},
+    {"id": "oriental_pearl_day", "expected": "passed", "location_text": "东方明珠广播电视塔", "departure_time_local": "13:00"},
 
     {"id": "xujiahui_late_dinner", "expected": "no_itinerary", "location_text": "徐家汇地铁站", "departure_time_local": "21:30", "meal_requirement": "dinner", "available_minutes": 180},
     {"id": "people_square_late_dinner", "expected": "no_itinerary", "location_text": "人民广场地铁站", "departure_time_local": "21:30", "meal_requirement": "dinner", "available_minutes": 180},
@@ -37,9 +37,9 @@
     {"id": "lujiazui_late_dinner", "expected": "no_itinerary", "location_text": "陆家嘴地铁站", "departure_time_local": "21:30", "meal_requirement": "dinner", "available_minutes": 180},
 
     {"id": "yuyuan_short", "expected": "no_itinerary", "location_text": "豫园地铁站", "departure_time_local": "13:00", "available_minutes": 1, "max_walk_minutes": 0},
-    {"id": "zhongshan_park_short", "expected": "no_itinerary", "location_text": "中山公园地铁站", "departure_time_local": "13:00", "available_minutes": 1, "max_walk_minutes": 0},
+    {"id": "natural_history_short", "expected": "no_itinerary", "location_text": "上海自然博物馆", "departure_time_local": "13:00", "available_minutes": 1, "max_walk_minutes": 0},
     {"id": "wujiaochang_short", "expected": "no_itinerary", "location_text": "五角场地铁站", "departure_time_local": "13:00", "available_minutes": 1, "max_walk_minutes": 0},
     {"id": "tianzifang_short", "expected": "no_itinerary", "location_text": "田子坊", "departure_time_local": "13:00", "available_minutes": 1, "max_walk_minutes": 0},
-    {"id": "shanghai_station_short", "expected": "no_itinerary", "location_text": "上海火车站", "departure_time_local": "13:00", "available_minutes": 1, "max_walk_minutes": 0}
+    {"id": "oriental_pearl_short", "expected": "no_itinerary", "location_text": "东方明珠广播电视塔", "departure_time_local": "13:00", "available_minutes": 1, "max_walk_minutes": 0}
   ]
 }

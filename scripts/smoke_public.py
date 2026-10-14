@@ -14,8 +14,10 @@ def check(client: httpx.Client, name: str, url: str, expected: str) -> dict:
         response = client.get(url)
         body = response.text
         if expected == "html":
-            passed = response.status_code == 200 and "<title>SoloVibe" in body
-            detail = "SoloVibe page" if passed else f"HTTP {response.status_code}"
+            passed = (response.status_code == 200
+                      and "<title>SoloVibe · 城市独行助手</title>" in body)
+            detail = ("current SoloVibe page" if passed
+                      else f"HTTP {response.status_code}; release marker absent")
         else:
             payload = response.json()
             passed = response.status_code == 200 and payload.get("ready") is True
