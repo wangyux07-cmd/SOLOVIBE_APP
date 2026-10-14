@@ -97,7 +97,7 @@ def test_offer_without_terms_is_not_verified():
 
 
 def test_fixed_pilot_cohort_keeps_all_four_categories():
-    path = Path(__file__).resolve().parents[2] / "docs/v3_pilot_shanghai.json"
+    path = Path(__file__).resolve().parents[2] / "eval/v3_pilot_shanghai.json"
     cohort = json.loads(path.read_text(encoding="utf-8"))
     assert len(cohort["venues"]) == 12
     assert len({item["id"] for item in cohort["venues"]}) == 12
